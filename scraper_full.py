@@ -116,11 +116,14 @@ class CategoryScraper:
             # Parse HTML
             soup = BeautifulSoup(self.driver.page_source, 'lxml')
 
+            # Extract article number FIRST (needed for image filtering)
+            article_number = self._extract_article_number(soup)
+
             # Extract data
             product = {
                 'url': product_url,
                 'product_name': self._extract_product_name(soup),
-                'article_number': self._extract_article_number(soup),
+                'article_number': article_number,
                 'brand': self._extract_brand(soup),
                 'description': self._extract_description(soup),
                 'price': self._extract_price(soup),
@@ -132,7 +135,7 @@ class CategoryScraper:
                 'pu_per_pallet': self._extract_pu_per_pallet(soup),
                 'pu_per_layer': self._extract_pu_per_layer(soup),
                 'country_of_origin': self._extract_country_of_origin(soup),
-                'images': self._extract_images(soup),
+                'images': self._extract_images(soup, article_number),  # Pass article_number
                 'scraped_at': datetime.utcnow().isoformat() + 'Z'
             }
 
@@ -233,68 +236,82 @@ class CategoryScraper:
     def _extract_country_of_origin(self, soup) -> str:
         return self._extract_field(soup, ["Country of origin", "Origin"])
 
-    def _extract_images(self, soup) -> List[str]:
+    def _extract_images(self, soup, article_number: str) -> List[str]:
         """
-        Extract ALL product images from various sources:
+        Extract ALL product images, filtered by article number to avoid related products
         - Main product-image-output
-        - Thumbnail images
-        - Data attributes
-        - Gallery images
+        - Carousel/gallery images
+        - Only images matching the article number
         """
         images = []
         seen_urls = set()  # Avoid duplicates
 
+        # Normalize article number for matching
+        article_num_clean = str(article_number).strip()
+
+        # Find product container to limit scope
+        product_container = soup.find('div', class_='product-container-img')
+        if not product_container:
+            product_container = soup  # Fallback to whole page
+
         # 1. Main product image (product-image-output)
-        main_imgs = soup.find_all('img', class_='product-image-output')
+        main_imgs = product_container.find_all('img', class_='product-image-output')
         for img in main_imgs:
             src = img.get('src', '')
-            if config.IMAGE_CDN_DOMAIN in src and src not in seen_urls:
-                images.append(src)
-                seen_urls.add(src)
+            if self._is_valid_product_image(src, article_num_clean):
+                # Convert to 600x600
+                src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                if src_high_res not in seen_urls:
+                    images.append(src_high_res)
+                    seen_urls.add(src_high_res)
 
-        # 2. Look for thumbnail images (common in Zentrada galleries)
-        thumbnail_containers = soup.find_all('div', class_=lambda x: x and ('thumbnail' in x.lower() or 'preview' in x.lower()))
-        for container in thumbnail_containers:
-            for img in container.find_all('img'):
+        # 2. Carousel images (owl-carousel contains additional product images)
+        carousel = product_container.find('owl-carousel-o')
+        if carousel:
+            for img in carousel.find_all('img'):
                 src = img.get('src', '')
-                if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src and src not in seen_urls:
-                    images.append(src)
-                    seen_urls.add(src)
+                if self._is_valid_product_image(src, article_num_clean):
+                    # Convert to 600x600
+                    src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                    if src_high_res not in seen_urls:
+                        images.append(src_high_res)
+                        seen_urls.add(src_high_res)
 
-        # 3. Check for images with data attributes (data-src, data-image, etc.)
-        data_attrs = ['data-src', 'data-image', 'data-zoom-image', 'data-full', 'data-large']
-        for attr in data_attrs:
-            imgs_with_data = soup.find_all('img', attrs={attr: True})
-            for img in imgs_with_data:
-                src = img.get(attr, '')
-                if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src and src not in seen_urls:
-                    images.append(src)
-                    seen_urls.add(src)
-
-        # 4. Look for any divs with background-image style (sometimes used for galleries)
-        style_divs = soup.find_all('div', style=lambda x: x and 'background-image' in x)
-        for div in style_divs:
-            style = div.get('style', '')
-            # Extract URL from background-image: url('...')
-            import re
-            urls = re.findall(r'url\(["\']?([^"\']+)["\']?\)', style)
-            for url in urls:
-                if config.IMAGE_CDN_DOMAIN in url and 'salesroom.jpg' not in url and url not in seen_urls:
-                    images.append(url)
-                    seen_urls.add(url)
-
-        # 5. Fallback: Look in product container
-        if not images:
-            container = soup.find('div', class_='product-container-img')
-            if container:
-                for img in container.find_all('img'):
-                    src = img.get('src', '')
-                    if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src and src not in seen_urls:
-                        images.append(src)
-                        seen_urls.add(src)
+        # 3. Look in small-img-holder (another common location for gallery)
+        small_img_holder = product_container.find('div', class_='small-img-holder')
+        if small_img_holder:
+            for img in small_img_holder.find_all('img'):
+                src = img.get('src', '')
+                if self._is_valid_product_image(src, article_num_clean):
+                    # Convert to 600x600
+                    src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                    if src_high_res not in seen_urls:
+                        images.append(src_high_res)
+                        seen_urls.add(src_high_res)
 
         # Limit to MAX_IMAGES
         return images[:config.MAX_IMAGES]
+
+    def _is_valid_product_image(self, src: str, article_number: str) -> bool:
+        """
+        Check if image URL is a valid product image
+        - Must contain CDN domain
+        - Must contain article number in filename
+        - Must not be a vendor logo or brand image
+        """
+        if not src or config.IMAGE_CDN_DOMAIN not in src:
+            return False
+
+        # Exclude vendor/brand logos
+        if 'salesroom.jpg' in src or 'brands/' in src or '/Logo' in src:
+            return False
+
+        # Must contain article number in the filename
+        # Examples: 13573.jpg, 13573_1.jpg, 13573_2.jpg
+        if article_number in src:
+            return True
+
+        return False
 
     def close(self):
         """Close connection (don't close user's browser)"""
