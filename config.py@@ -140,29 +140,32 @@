@@ -1,0 +1,251 @@
+# config.py - Configurări Aplicație Zentrada Processor
+
+# Cursul EUR/RON (editabil din interfață)
+DEFAULT_EUR_RON_RATE = 5.02
+
+# ============================================
+# CATEGORII PRODUSE (9 categorii principale)
+# ============================================
+PRODUCT_CATEGORIES = [
+    "Casă & Grădină",
+    "Jucării & Copii",
+    "Fashion & Accesorii",
+    "Beauty & Îngrijire",
+    "Electronice & Birou",
+    "Cadouri & Petreceri",
+    "Sport & Timp Liber",
+    "Alimente & Băuturi",
+    "Branduri Licențiate"
+]
+
+# ============================================
+# MARJE DE PROFIT PE CATEGORII (%)
+# ============================================
+CATEGORY_MARGINS = {
+    "Casă & Grădină": 30,
+    "Jucării & Copii": 35,
+    "Fashion & Accesorii": 40,
+    "Beauty & Îngrijire": 35,
+    "Electronice & Birou": 20,
+    "Cadouri & Petreceri": 40,
+    "Sport & Timp Liber": 30,
+    "Alimente & Băuturi": 25,
+    "Branduri Licențiate": 45
+}
+
+# ============================================
+# COTE TVA ROMÂNIA (%)
+# ============================================
+VAT_RATES = {
+    "Standard": 19,
+    "Redusă 9%": 9,
+    "Redusă 5%": 5,
+    "Scutită": 0
+}
+
+# Mapping categorie produs → cotă TVA
+CATEGORY_VAT_MAPPING = {
+    "Casă & Grădină": 19,
+    "Jucării & Copii": 19,
+    "Fashion & Accesorii": 19,
+    "Beauty & Îngrijire": 19,
+    "Electronice & Birou": 19,
+    "Cadouri & Petreceri": 19,
+    "Sport & Timp Liber": 19,
+    "Alimente & Băuturi": 9,  # Majoritatea alimentelor procesate
+    "Branduri Licențiate": 19
+}
+
+# ============================================
+# MAPPING ZENTRADA CATEGORIES → CATEGORIILE NOASTRE
+# ============================================
+ZENTRADA_CATEGORY_MAPPING = {
+    "Home & Living": "Casă & Grădină",
+    "Household & Kitchen": "Casă & Grădină",
+    "Garden & DIY store": "Casă & Grădină",
+    
+    "Toys": "Jucării & Copii",
+    "Licensed Products": "Branduri Licențiate",  # Poate fi și Jucării dacă nu e brand major
+    
+    "Fashion & Apparel": "Fashion & Accesorii",
+    "Jewelry & Watches": "Fashion & Accesorii",
+    "Bags & Travel accessories": "Fashion & Accesorii",
+    
+    "Drugstore & Beauty": "Beauty & Îngrijire",
+    
+    "Consumer Electronics": "Electronice & Birou",
+    "Office and business supplies": "Electronice & Birou",
+    
+    "Gifts & Stationery": "Cadouri & Petreceri",
+    "Party & Costumes": "Cadouri & Petreceri",
+    
+    "Sports & Leisure": "Sport & Timp Liber",
+    "Pet supplies": "Casă & Grădină",
+    
+    "Food & Beverage": "Alimente & Băuturi",
+    
+    "Other": "Casă & Grădină"  # Default pentru necunoscute
+}
+
+# ============================================
+# BRANDURI LICENȚIATE MAJORE
+# ============================================
+# Acestea vor fi categorizate automat ca "Branduri Licențiate"
+LICENSED_BRANDS = [
+    "Marvel", "Disney", "Star Wars", "Pixar", "Mickey Mouse", "Minnie Mouse",
+    "Frozen", "Princess", "Cars", "Toy Story", "Spider-Man", "Avengers",
+    "Batman", "Superman", "DC Comics", "Harry Potter", "Pokemon", "Pokémon",
+    "Nintendo", "Super Mario", "Sonic", "Minecraft", "Fortnite",
+    "Barbie", "Hot Wheels", "LEGO", "Paw Patrol", "Peppa Pig",
+    "Hello Kitty", "Snoopy", "Looney Tunes", "Tom and Jerry",
+    "Teenage Mutant Ninja Turtles", "TMNT", "Transformers",
+    "My Little Pony", "Care Bears", "Winnie the Pooh"
+]
+
+# ============================================
+# BATCH PROCESSING SETTINGS
+# ============================================
+BATCH_SIZE = 50  # Procesează câte 50 produse odată
+MAX_RETRIES = 3  # Retry-uri pentru API Gemini
+
+# ============================================
+# WOOCOMMERCE EXPORT COLUMNS
+# ============================================
+WOOCOMMERCE_COLUMNS = [
+    "ID",
+    "Type",  # simple, variable, etc.
+    "SKU",
+    "Name",
+    "Published",
+    "Is featured?",
+    "Visibility in catalog",
+    "Short description",
+    "Description",
+    "Date sale price starts",
+    "Date sale price ends",
+    "Tax status",
+    "Tax class",
+    "In stock?",
+    "Stock",
+    "Low stock amount",
+    "Backorders allowed?",
+    "Sold individually?",
+    "Weight (kg)",
+    "Length (cm)",
+    "Width (cm)",
+    "Height (cm)",
+    "Allow customer reviews?",
+    "Purchase note",
+    "Sale price",
+    "Regular price",
+    "Categories",
+    "Tags",
+    "Shipping class",
+    "Images",
+    "Download limit",
+    "Download expiry days",
+    "Parent",
+    "Grouped products",
+    "Upsells",
+    "Cross-sells",
+    "External URL",
+    "Button text",
+    "Position",
+    "Attribute 1 name",
+    "Attribute 1 value(s)",
+    "Attribute 1 visible",
+    "Attribute 1 global",
+    "Meta: _brand",  # Custom field pentru brand
+    "Meta: _eur_price_piece",  # Preț EUR bucată
+    "Meta: _eur_price_box",  # Preț EUR cutie
+    "Meta: _lei_price_piece",  # Preț LEI bucată
+    "Meta: _lei_price_box",  # Preț LEI cutie
+    "Meta: _pieces_per_box",  # Bucăți per cutie
+    "Meta: _vat_rate",  # Cotă TVA
+    "Meta: _margin_percent",  # Marjă %
+    "Meta: _mix_order",  # Mix order true/false
+    "Meta: _min_order_qty",  # Cantitate minimă comandă
+    "Meta: _zentrada_url",  # Link produs Zentrada
+    "Meta: _country_of_origin",  # Țara de origine
+    "Meta: _ean"  # Cod EAN
+]
+
+# ============================================
+# GEMINI AI SETTINGS
+# ============================================
+GEMINI_MODEL = "gemini-2.5-flash"  # Sau "gemini-1.5-pro" pentru rezultate mai bune
+GEMINI_TEMPERATURE = 0.7
+GEMINI_MAX_OUTPUT_TOKENS = 2048
+
+# ============================================
+# AI PROMPT TEMPLATE
+# ============================================
+AI_PROMPT_TEMPLATE = """
+Ești un expert în marketing B2B și SEO pentru e-commerce în România. Sarcina ta este să preiei date despre un produs în engleză și să generezi un răspuns în format JSON valid, cu traduceri și optimizări pentru piața din România.
+
+PRODUSUL:
+Brand: {brand}
+Nume produs (EN): {product_name}
+Descriere (EN): {description}
+Țara de origine: {country_of_origin}
+ 
+SARCINI:
+1. `title_ro`: Traduce și optimizează numele produsului pentru SEO B2B.
+2. `description_ro`: Creează o descriere profesională B2B de 150-250 cuvinte, optimizată SEO.
+3. `short_description_ro`: Creează 3-5 bullet points concise (5-15 cuvinte fiecare), separate prin `\\n`, care evidențiază caracteristicile cheie.
+4. `category`: Alege categoria cea mai potrivită din lista de mai jos.
+5. `is_licensed_brand`: Determină dacă brandul este unul licențiat major (ex: Disney, Marvel).
+
+CATEGORII DISPONIBILE:
+- Casă & Grădină
+- Jucării & Copii
+- Fashion & Accesorii
+- Beauty & Îngrijire
+- Electronice & Birou
+- Cadouri & Petreceri
+- Sport & Timp Liber
+- Alimente & Băuturi
+- Branduri Licențiate
+
+RĂSPUNDE STRICT ÎN FORMAT JSON VALID, FĂRĂ TEXT SUPLIMENTAR. EXEMPLU:
+{{
+  "title_ro": "Exemplu Titlu Produs Optimizat SEO",
+  "description_ro": "Aceasta este o descriere lungă și detaliată a produsului, perfectă pentru clienții B2B. Conține cuvinte cheie relevante și informații utile.",
+  "short_description_ro": "Caracteristică principală 1\\nBeneficiu cheie 2\\nSpecificație importantă 3",
+  "category": "Jucării & Copii",
+  "is_licensed_brand": true
+}}
+"""
+
+# ============================================
+# UI SETTINGS
+# ============================================
+WINDOW_TITLE = "Zentrada Processor - Importator Produse B2B"
+WINDOW_MIN_WIDTH = 1400
+WINDOW_MIN_HEIGHT = 900
+
+# ============================================
+# FILE PATHS
+# ============================================
+DEFAULT_OUTPUT_FOLDER = "exports"
+LOG_FILE = "processor.log"
+
+# ============================================
+# SETĂRI SCRAPER (Folosite de scraper.py)
+# ============================================
+
+# Date de autentificare Zentrada
+ZENTRADA_EMAIL = "raulpavel95@gmail.com"
+ZENTRADA_PASSWORD = "C48*FKk4zM2s4.F"
+
+# Întârziere aleatorie între request-uri (min, max secunde)
+DELAY_BETWEEN_REQUESTS = (2, 6)
+
+# Numărul maxim de imagini de extras per produs
+MAX_IMAGES = 5
+
+# Domeniul CDN de unde se iau imaginile
+IMAGE_CDN_DOMAIN = "evdo8pe.cloudimg.io"
+
+# Timeout pentru request-uri (în milisecunde)
+REQUEST_TIMEOUT = 30000

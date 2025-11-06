@@ -1,0 +1,6 @@
+# Virtual environments
+.venv/
+venv/
+env/
+pycache/ *.pyc
+.env *.log secrets.json
