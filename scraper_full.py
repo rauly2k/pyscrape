@@ -234,13 +234,32 @@ class CategoryScraper:
         return self._extract_field(soup, ["Country of origin", "Origin"])
 
     def _extract_images(self, soup) -> List[str]:
+        """
+        Extract only product images (with class 'product-image-output')
+        Excludes vendor logos, category images, etc.
+        """
         images = []
-        for img in soup.find_all('img'):
+        # First try to find images with the product-image-output class
+        product_imgs = soup.find_all('img', class_='product-image-output')
+        for img in product_imgs:
             src = img.get('src', '')
             if config.IMAGE_CDN_DOMAIN in src:
                 images.append(src)
                 if len(images) >= config.MAX_IMAGES:
                     break
+
+        # Fallback: if no product-image-output found, try images in product container
+        if not images:
+            container = soup.find('div', class_='product-container-img')
+            if container:
+                for img in container.find_all('img'):
+                    src = img.get('src', '')
+                    # Skip vendor banner images
+                    if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src:
+                        images.append(src)
+                        if len(images) >= config.MAX_IMAGES:
+                            break
+
         return images
 
     def close(self):
