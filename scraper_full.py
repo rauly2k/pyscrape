@@ -38,7 +38,7 @@ class CategoryScraper:
             return False
 
     def scrape_category(self, category_url: str, max_pages: int = 1,
-                       progress_callback=None) -> List[Dict]:
+                       progress_callback=None, products_per_page: int = 0) -> List[Dict]:
         """
         Scrape products from category
 
@@ -46,6 +46,7 @@ class CategoryScraper:
             category_url: Category URL
             max_pages: Maximum number of pages to scrape
             progress_callback: Optional callback function(current, total, message)
+            products_per_page: Number of products to scrape per page (0 = all)
 
         Returns:
             List of product dictionaries
@@ -71,6 +72,10 @@ class CategoryScraper:
                 if progress_callback:
                     progress_callback(page_num, max_pages, f"No products on page {page_num}")
                 break
+
+            # Limit products per page if specified
+            if products_per_page > 0:
+                product_cards = product_cards[:products_per_page]
 
             # Scrape each product
             for i, card in enumerate(product_cards, 1):
