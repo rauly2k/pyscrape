@@ -347,58 +347,59 @@ class ProductProcessor:
             'tags_ro': tags # Ensure this key is present
         }
     
-    def _calculate_prices(self, price_eur_piece: float, pieces_per_box: int, 
-                        category: str) -> Dict[str, float]:
+    def _calculate_prices(self, price_eur_piece: float, pieces_per_box: int,
+                        profit_margin: float) -> Dict[str, float]:
         """
         Calculează toate prețurile pentru un produs
-        
+
         Args:
             price_eur_piece: Prețul în EUR per bucată
             pieces_per_box: Număr bucăți per cutie
-            category: Categoria produsului
-            
+            profit_margin: Marja de profit (%) - aceeași pentru toate produsele
+
         Returns:
             Dicționar cu toate prețurile calculate
         """
         # Preț EUR cutie
         price_eur_box = price_eur_piece * pieces_per_box
-        
-        # Conversie în LEI
+
+        # Conversie în LEI (Preț Achiziție)
         price_lei_piece = price_eur_piece * self.eur_ron_rate
         price_lei_box = price_eur_box * self.eur_ron_rate
-        
-        # TVA
-        vat_rate = CATEGORY_VAT_MAPPING.get(category, 19) / 100
-        price_lei_piece_vat = price_lei_piece * (1 + vat_rate)
-        price_lei_box_vat = price_lei_box * (1 + vat_rate)
-        
-        # Marjă
-        margin_percent = CATEGORY_MARGINS.get(category, 30) / 100
-        price_final_piece = price_lei_piece_vat * (1 + margin_percent)
-        price_final_box = price_lei_box_vat * (1 + margin_percent)
-        
+
+        # Preț Vânzare = Preț Achiziție * Marjă Profit
+        margin_multiplier = 1 + (profit_margin / 100)
+        price_sale_piece = price_lei_piece * margin_multiplier
+        price_sale_box = price_lei_box * margin_multiplier
+
+        # Preț Vânzare + TVA (19%)
+        vat_rate = 19  # TVA fix 19%
+        vat_multiplier = 1 + (vat_rate / 100)
+        price_sale_piece_vat = price_sale_piece * vat_multiplier
+        price_sale_box_vat = price_sale_box * vat_multiplier
+
         return {
             'price_eur_piece': round(price_eur_piece, 2),
             'price_eur_box': round(price_eur_box, 2),
             'price_lei_piece': round(price_lei_piece, 2),
             'price_lei_box': round(price_lei_box, 2),
-            'vat_rate': int(vat_rate * 100),
-            'price_lei_piece_vat': round(price_lei_piece_vat, 2),
-            'price_lei_box_vat': round(price_lei_box_vat, 2),
-            'margin_percent': int(margin_percent * 100),
-            'price_final_piece': round(price_final_piece, 2),
-            'price_final_box': round(price_final_box, 2)
+            'price_sale_piece': round(price_sale_piece, 2),
+            'price_sale_box': round(price_sale_box, 2),
+            'price_sale_piece_vat': round(price_sale_piece_vat, 2),
+            'price_sale_box_vat': round(price_sale_box_vat, 2),
+            'margin_percent': int(profit_margin),
+            'vat_rate': vat_rate
         }
     
     def process_product(self, product: Dict[str, Any], use_ai: bool = True,
-                        default_category: str = None, preloaded_ai_result: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+                        profit_margin: float = 30.0, preloaded_ai_result: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         """
         Procesează un singur produs complet
 
         Args:
             product: Date produs din JSON
             use_ai: Dacă să folosească AI pentru enhancement
-            default_category: Categoria prestabilită (dacă e setată, AI nu mai alege categoria)
+            profit_margin: Marja de profit (%) pentru calculul prețurilor
             preloaded_ai_result: Rezultat AI pre-încărcat (pentru procesare batch)
 
         Returns:
@@ -430,7 +431,7 @@ class ProductProcessor:
                 ai_result = self.enhance_with_ai(product)
             else:
                 # No AI - use defaults
-                category = default_category if default_category else ("Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină")
+                category = "Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină"
                 ai_result = {
                     'title_ro': product.get('product_name', 'Produs'),
                     'description_ro': product.get('description', 'Descriere indisponibilă.'),
@@ -446,7 +447,7 @@ class ProductProcessor:
                 print(f"   Conținut: {str(ai_result)[:200]}")
                 print(f"   Se folosește fallback...")
                 # Force fallback
-                category = default_category if default_category else ("Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină")
+                category = "Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină"
                 brand = product.get('brand', 'N/A')
                 ai_result = {
                     'title_ro': product.get('product_name', 'Produs'),
@@ -457,12 +458,8 @@ class ProductProcessor:
                     'tags_ro': f"{brand}, B2B" if brand != 'N/A' else "B2B"
                 }
 
-            # Suprascrie categoria dacă este setată una implicită
-            if default_category and isinstance(ai_result, dict):
-                ai_result['category'] = default_category
-
-            # 4. Calculează prețurile
-            prices = self._calculate_prices(price_eur_piece, pieces_per_box, ai_result.get('category', 'Casă & Grădină'))
+            # 4. Calculează prețurile cu marja de profit
+            prices = self._calculate_prices(price_eur_piece, pieces_per_box, profit_margin)
             
             # 5. Pregătește imaginile - convert toate la 600x600
             images = product.get('images', [])
@@ -508,14 +505,14 @@ class ProductProcessor:
             self.stats['failed_products'] += 1
             return None
     
-    def process_batch(self, products: List[Dict[str, Any]], use_ai: bool = True, default_category: str = None, progress_callback=None, batch_size_api: int = 15) -> List[Dict[str, Any]]:
+    def process_batch(self, products: List[Dict[str, Any]], use_ai: bool = True, profit_margin: float = 30.0, progress_callback=None, batch_size_api: int = 15) -> List[Dict[str, Any]]:
         """
         Procesează un batch de produse
 
         Args:
             products: Lista de produse de procesat
             use_ai: Dacă să folosească AI
-            default_category: Categoria prestabilită pentru toate produsele
+            profit_margin: Marja de profit (%) pentru toate produsele
             progress_callback: Funcție callback pentru a raporta progresul
             batch_size_api: Dimensiunea lotului pentru apelurile API către AI
 
@@ -527,11 +524,9 @@ class ProductProcessor:
         self.stats['total_products'] = total_to_process
 
         # Batch AI processing enabled - processes multiple products per AI call
-        # NOTE: Now works even with default_category (just overrides the AI's category choice)
         if use_ai:
             print(f"📦 Mod BATCH activat: procesez în loturi de {batch_size_api} produse")
-            if default_category:
-                print(f"   Categoria prestabilită: {default_category}")
+            print(f"💰 Marjă profit: {profit_margin}%")
 
             # Process in batches
             for batch_start in range(0, total_to_process, batch_size_api):
@@ -563,13 +558,13 @@ class ProductProcessor:
                                 print(f"⚠️ Produs {article_number}: rezultat AI invalid (tip: {type(ai_result).__name__}). Procesez individual...")
                                 print(f"   Conținut invalid: {str(ai_result)[:200]}")
                                 # Fallback to individual processing
-                                processed = self.process_product(product, use_ai=True, default_category=default_category)
+                                processed = self.process_product(product, use_ai=True, profit_margin=profit_margin)
                             else:
                                 # Use preloaded AI result
                                 processed = self.process_product(
                                     product,
                                     use_ai=True,
-                                    default_category=default_category,
+                                    profit_margin=profit_margin,
                                     preloaded_ai_result=ai_result
                                 )
                             if processed:
@@ -577,7 +572,7 @@ class ProductProcessor:
                         else:
                             # Article number not found in AI results - fallback to individual
                             print(f"⚠️ Produsul {article_number} lipsește din răspunsul AI. Procesez individual...")
-                            processed = self.process_product(product, use_ai=True, default_category=default_category)
+                            processed = self.process_product(product, use_ai=True, profit_margin=profit_margin)
                             if processed:
                                 processed_products.append(processed)
                 else:
@@ -592,18 +587,19 @@ class ProductProcessor:
                                 f"📦 Individual {batch_start + i}/{total_to_process}: {article_number}"
                             )
 
-                        processed = self.process_product(product, use_ai=True, default_category=default_category)
+                        processed = self.process_product(product, use_ai=True, profit_margin=profit_margin)
                         if processed:
                             processed_products.append(processed)
         else:
-            # Individual processing (no AI or with default category)
+            # Individual processing (no AI)
             print(f"📦 Mod INDIVIDUAL: procesez unul câte unul")
+            print(f"💰 Marjă profit: {profit_margin}%")
             for i, product in enumerate(products, 1):
                 article_number = product.get('article_number', 'N/A')
                 if progress_callback:
                     progress_callback(i, total_to_process, f"📦 Procesez {i}/{total_to_process}: {article_number}")
 
-                processed = self.process_product(product, use_ai, default_category)
+                processed = self.process_product(product, use_ai, profit_margin)
                 if processed:
                     processed_products.append(processed)
 

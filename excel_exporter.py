@@ -61,7 +61,7 @@ class ExcelExporter:
                 'Allow customer reviews?': 1,
                 'Purchase note': '',
                 'Sale price': '',  # Nu folosim sale price
-                'Regular price': product['price_final_piece'],  # Prețul bucată final
+                'Regular price': product['price_sale_piece_vat'],  # Prețul bucată cu TVA
                 'Categories': product['category'],
                 'Tags': f"{product['brand']}, B2B",
                 'Shipping class': '',
@@ -116,15 +116,15 @@ class ExcelExporter:
     def create_internal_excel(self, products: List[Dict[str, Any]]) -> pd.DataFrame:
         """
         Creează un Excel intern simplu cu toate datele pentru verificare
-        
+
         Args:
             products: Lista de produse procesate
-            
+
         Returns:
             DataFrame simplu pentru verificare
         """
         rows = []
-        
+
         for product in products:
             row = {
                 'Nr. Articol': product['article_number'],
@@ -135,34 +135,33 @@ class ExcelExporter:
                 'Brand': product['brand'],
                 'Țara Origine': product['country_of_origin'],
                 'Buc/Cutie': product['pieces_per_box'],
-                
+
                 # Prețuri achiziție
                 'Preț Ach. EUR/Buc': product['price_eur_piece'],
                 'Preț Ach. EUR/Cutie': product['price_eur_box'],
-                'Preț Ach. LEI/Buc': product['price_lei_piece'],
-                'Preț Ach. LEI/Cutie': product['price_lei_box'],
-                
-                # TVA și Marjă
-                'TVA (%)': product['vat_rate'],
-                'Marjă (%)': product['margin_percent'],
-                
-                # Prețuri cu TVA
-                'Preț LEI/Buc + TVA': product['price_lei_piece_vat'],
-                'Preț LEI/Cutie + TVA': product['price_lei_box_vat'],
-                
-                # Prețuri finale
-                'Preț Final LEI/Buc': product['price_final_piece'],
-                'Preț Final LEI/Cutie': product['price_final_box'],
-                
+                'Pret Ach LEI/Buc': product['price_lei_piece'],
+                'Pret Ach LEI/Cutie': product['price_lei_box'],
+
+                # Prețuri vânzare (cu marjă de profit)
+                'Pret Vanzare LEI/Buc': product['price_sale_piece'],
+                'Pret Vanzare LEI/Cutie': product['price_sale_box'],
+
+                # TVA
+                'TVA (19%)': '19%',
+
+                # Prețuri vânzare cu TVA
+                'Pret Vanzare LEI/Buc + TVA': product['price_sale_piece_vat'],
+                'Pret Vanzare LEI/Cutie + TVA': product['price_sale_box_vat'],
+
                 # Alte detalii
-                'Mix Order': 'Da' if product['mix_order'] else 'Nu',
+                'MixOrder': 'Da' if product['mix_order'] else 'Nu',
                 'Cantitate Min.': product['min_order_qty'],
-                'Brand Licențiat': 'Da' if product['is_licensed_brand'] else 'Nu',
+                'Brand Licentiat': 'Da' if product['is_licensed_brand'] else 'Nu',
                 'URL Zentrada': product['zentrada_url']
             }
-            
+
             rows.append(row)
-        
+
         df = pd.DataFrame(rows)
         return df
     
