@@ -458,10 +458,16 @@ class ProductProcessor:
                     'tags_ro': f"{brand}, B2B" if brand != 'N/A' else "B2B"
                 }
 
-            # 4. Calculează prețurile cu marja de profit
+            # 4. Adaugă informații de ambalaj și comandă minimă la descriere
+            description_with_packaging = ai_result.get('description_ro', product.get('description', ''))
+            if description_with_packaging:
+                # Adaugă informații de ambalaj și comandă
+                description_with_packaging += f"\n\nAmbalaj: {pieces_per_box} Bucati / Cutie\nComanda minima: 1 Cutie"
+
+            # 5. Calculează prețurile cu marja de profit
             prices = self._calculate_prices(price_eur_piece, pieces_per_box, profit_margin)
-            
-            # 5. Pregătește imaginile - convert toate la 600x600
+
+            # 6. Pregătește imaginile - convert toate la 600x600
             images = product.get('images', [])
             if isinstance(images, list):
                 # Convertește toate imaginile la 600x600
@@ -476,13 +482,13 @@ class ProductProcessor:
             else:
                 images_str = str(images)
             
-            # 6. Construiește produsul procesat
+            # 7. Construiește produsul procesat
             processed = {
                 'article_number': product.get('article_number', ''),
                 'ean': product.get('ean_sku', ''),
                 'sku': product.get('article_number', ''),  # WooCommerce SKU
                 'name': ai_result.get('title_ro', product.get('product_name', 'N/A')),
-                'description': ai_result.get('description_ro', product.get('description', '')),
+                'description': description_with_packaging,
                 'short_description': ai_result.get('short_description_ro', ''),
                 'category': ai_result.get('category', 'Casă & Grădină'),
                 'brand': product.get('brand', ''),
