@@ -297,6 +297,9 @@ class ProductProcessor:
                 except json.JSONDecodeError as json_err:
                     print(f"❌ Eroare decodare JSON de la AI. Motiv: {json_err}")
                     print(f"--- JSON Primit (Invalid) ---\n{response_text[:500]}\n--------------------------")
+                    # Check if this is an API key error
+                    if "API key" in response_text or "403" in response_text or "leaked" in response_text:
+                        raise ValueError(f"API Key Error - Your API key may be invalid, expired, or leaked. Please check your Gemini API key.")
                     raise ValueError(f"AI-ul a returnat JSON invalid. Eroare: {json_err}")
 
                 # CRITICAL: Validate that result is a dictionary, not a string or other type

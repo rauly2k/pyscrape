@@ -356,35 +356,69 @@ class ZentradaScraper:
 
     def _extract_images(self, soup: BeautifulSoup) -> List[str]:
         """
-        Extract only product images (with class 'product-image-output')
-        Excludes vendor logos, category images, etc.
+        Extract ALL product images from various sources:
+        - Main product-image-output
+        - Thumbnail images
+        - Data attributes
+        - Gallery images
 
         Returns:
             List of image URLs (max MAX_IMAGES from config)
         """
         images = []
-        # First try to find images with the product-image-output class
-        product_imgs = soup.find_all('img', class_='product-image-output')
-        for img in product_imgs:
-            src = img.get('src', '')
-            if config.IMAGE_CDN_DOMAIN in src:
-                images.append(src)
-                if len(images) >= config.MAX_IMAGES:
-                    break
+        seen_urls = set()  # Avoid duplicates
 
-        # Fallback: if no product-image-output found, try images in product container
+        # 1. Main product image (product-image-output)
+        main_imgs = soup.find_all('img', class_='product-image-output')
+        for img in main_imgs:
+            src = img.get('src', '')
+            if config.IMAGE_CDN_DOMAIN in src and src not in seen_urls:
+                images.append(src)
+                seen_urls.add(src)
+
+        # 2. Look for thumbnail images (common in Zentrada galleries)
+        thumbnail_containers = soup.find_all('div', class_=lambda x: x and ('thumbnail' in x.lower() or 'preview' in x.lower()))
+        for container in thumbnail_containers:
+            for img in container.find_all('img'):
+                src = img.get('src', '')
+                if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src and src not in seen_urls:
+                    images.append(src)
+                    seen_urls.add(src)
+
+        # 3. Check for images with data attributes (data-src, data-image, etc.)
+        data_attrs = ['data-src', 'data-image', 'data-zoom-image', 'data-full', 'data-large']
+        for attr in data_attrs:
+            imgs_with_data = soup.find_all('img', attrs={attr: True})
+            for img in imgs_with_data:
+                src = img.get(attr, '')
+                if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src and src not in seen_urls:
+                    images.append(src)
+                    seen_urls.add(src)
+
+        # 4. Look for any divs with background-image style (sometimes used for galleries)
+        style_divs = soup.find_all('div', style=lambda x: x and 'background-image' in x)
+        for div in style_divs:
+            style = div.get('style', '')
+            # Extract URL from background-image: url('...')
+            import re
+            urls = re.findall(r'url\(["\']?([^"\']+)["\']?\)', style)
+            for url in urls:
+                if config.IMAGE_CDN_DOMAIN in url and 'salesroom.jpg' not in url and url not in seen_urls:
+                    images.append(url)
+                    seen_urls.add(url)
+
+        # 5. Fallback: Look in product container
         if not images:
             container = soup.find('div', class_='product-container-img')
             if container:
                 for img in container.find_all('img'):
                     src = img.get('src', '')
-                    # Skip vendor banner images
-                    if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src:
+                    if config.IMAGE_CDN_DOMAIN in src and 'salesroom.jpg' not in src and src not in seen_urls:
                         images.append(src)
-                        if len(images) >= config.MAX_IMAGES:
-                            break
+                        seen_urls.add(src)
 
-        return images
+        # Limit to MAX_IMAGES
+        return images[:config.MAX_IMAGES]
 
     def _extract_field(self, soup: BeautifulSoup, field_names: List[str]) -> str:
         """
