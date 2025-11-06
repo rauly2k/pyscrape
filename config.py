@@ -181,7 +181,7 @@ GEMINI_MAX_OUTPUT_TOKENS = 8192  # For individual products (not used for batch -
 # AI PROMPT TEMPLATE
 # ============================================
 AI_PROMPT_TEMPLATE = """
-Ești un expert în marketing B2B și SEO pentru e-commerce în România.
+Ești un expert în descrieri de produse B2B pentru e-commerce în România.
 
 PRODUSUL:
 Brand: {brand}
@@ -191,8 +191,17 @@ Descriere (EN): {description}
 
 SARCINI:
 1. `title_ro`: Traduce numele produsului în română. Fii concis și direct. NU adăuga informații de marketing sau SEO precum "B2B", "engros", "ideal pentru cadouri". Păstrează doar numele esențial al produsului.
-2. `description_ro`: Creează o descriere de produs atractivă (60-100 cuvinte), structurată în 2-3 paragrafe. Fiecare paragraf trebuie să înceapă cu un subtitlu concis, formatat cu bold markdown (ex: **Subtitlu Atractiv**). Descrierea trebuie să fie informativă și orientată către clientul final. NU folosi limbaj B2B.
-3. `short_description_ro`: Creează 3-5 bullet points concise (5-15 cuvinte fiecare), separate prin `\n`. Acestea trebuie să descrie strict caracteristici, avantaje sau conținutul produsului. NU adăuga text de marketing (ex: "ideal pentru revânzare", "perfect pentru cadouri").
+
+2. `description_ro`: Creează o descriere PROFESIONALĂ B2B (40-60 cuvinte) într-un singur paragraf simplu, fără subtitluri bold.
+   - TON PROFESIONAL: Scrie pentru profesioniști B2B, nu pentru consumatori finali
+   - NU folosi limbaj consumer-focused: evită "dumneavoastră", "când aveți nevoie", "vă oferă", etc.
+   - Fii DIRECT și FACTUAL: descrie ce este produsul și pentru ce este util
+   - Format: "Nume produs - scurtă descriere tehnică. Utilizări/aplicații practice. Caracteristici cheie."
+   - EXEMPLU BUN: "Set de 4 baterii Varta Super Heavy Duty Micro AAA - conceput pentru a oferi energie constantă și de lungă durată. Ideale pentru utilizare zilnică în telecomenzi, ceasuri, jucării și alte aparate electronice de mici dimensiuni, aceste baterii asigură funcționarea optimă."
+   - EXEMPLU GREȘIT: "**Performanță Fiabilă**\\nAcest set vă oferă energie când aveți cea mai mare nevoie..."
+
+3. `short_description_ro`: Creează 3-5 bullet points concise (5-15 cuvinte fiecare), separate prin `\n`. Acestea trebuie să descrie strict caracteristici tehnice, avantaje sau conținutul produsului. TON PROFESIONAL B2B.
+
 4. Determină categoria cea mai potrivită din lista de mai jos
 5. Verifică dacă brandul este licențiat (Disney, Marvel, etc.)
 
@@ -209,17 +218,19 @@ CATEGORII DISPONIBILE:
 
 RĂSPUNDE STRICT ÎN FORMAT JSON:
 {
-  "title_ro": "Calendar Advent Chupa Chups Chupalicious",
-  "description_ro": "**24 de Zile de Surprize**\\nCalendarul de Advent Chupa Chups este cadoul ideal pentru sezonul sărbătorilor, oferind o experiență zilnică de descoperire.\\n\\n**Conținut Bogat și Diversificat**\\nSetul include tot ce este necesar pentru un look complet și distractiv: balsamuri de buze, lacuri de unghii și accesorii pentru păr.",
-  "short_description_ro": "Conține 24 de surprize cosmetice și accesorii.\\nInclude balsamuri de buze, lacuri de unghii și farduri.\\nDesign festiv, inspirat de brandul Chupa Chups.",
-  "category": "Cadouri & Petreceri",
-  "is_licensed_brand": true,
-  "tags_ro": "advent calendar, cosmetice, cadou craciun, chupa chups, fete"
+  "title_ro": "Baterii Varta Super Heavy Duty Micro AAA",
+  "description_ro": "Set de 4 baterii Varta Super Heavy Duty Micro AAA - conceput pentru a oferi energie constantă și de lungă durată. Ideale pentru utilizare zilnică în telecomenzi, ceasuri, jucării și alte aparate electronice de mici dimensiuni, aceste baterii asigură funcționarea optimă.",
+  "short_description_ro": "Set de 4 baterii Micro AAA\\nEnergie constantă și de lungă durată\\nIdeale pentru telecomenzi, ceasuri și jucării\\nCompoziție chimică cu descărcare lentă",
+  "category": "Electronice & Birou",
+  "is_licensed_brand": false,
+  "tags_ro": "baterii, aaa, varta, telecomenzi, jucarii, energie"
 }
 
 IMPORTANT:
-- Folosește DOAR `\\n` pentru a separa bullet points și `\\n\\n` pentru a separa paragrafele în descrieri.
-- Fiecare bullet point să înceapă cu majusculă și să fie concis (5-15 cuvinte)
+- NU folosi subtitluri bold (ex: **Subtitlu**)
+- NU folosi limbaj consumer (dumneavoastră, vă oferă, când aveți nevoie)
+- Scrie SIMPLU, DIRECT, PROFESIONAL pentru B2B
+- Folosește DOAR `\\n` pentru a separa bullet points
 - Asigură-te că JSON-ul este VALID: escape toate ghilimelele (") din text cu backslash (\")
 - NU folosi newline real în JSON, doar \\n ca string escape
 - NU adăuga text înaintea sau după JSON. Doar JSON pur valid.
@@ -229,15 +240,23 @@ IMPORTANT:
 # AI PROMPT BATCH TEMPLATE
 # ============================================
 AI_PROMPT_BATCH_TEMPLATE = """
-Ești un expert în marketing și SEO pentru e-commerce în România. Sarcina ta este să preiei o LISTĂ de produse în format JSON și să returnezi o LISTĂ JSON cu datele procesate pentru FIECARE produs, în aceeași ordine.
+Ești un expert în descrieri de produse B2B pentru e-commerce în România. Sarcina ta este să preiei o LISTĂ de produse în format JSON și să returnezi un DICȚIONAR JSON cu datele procesate pentru FIECARE produs.
 Fiecare produs din input are un câmp "id". Trebuie să returnezi un DICȚIONAR JSON unde cheile sunt "id"-urile produselor din input.
+
 LISTA DE PRODUSE (INPUT):
 {product_list_json}
 
 SARCINI PENTRU FIECARE PRODUS DIN LISTĂ:
 1. `title_ro`: Traduce numele produsului în română. Fii concis și direct. NU adăuga informații de marketing sau SEO.
-2. `description_ro`: Creează o descriere de produs (60-100 cuvinte), structurată în 2-3 paragrafe cu subtitluri formatate în bold markdown (ex: **Subtitlu**). Fără limbaj B2B.
-3. `short_description_ro`: Creează 3-5 bullet points concise (5-15 cuvinte fiecare), separate prin `\\n`, care descriu caracteristici sau avantaje. Fără text de marketing.
+
+2. `description_ro`: Creează o descriere PROFESIONALĂ B2B (40-60 cuvinte) într-un singur paragraf simplu, fără subtitluri bold.
+   - TON PROFESIONAL: Scrie pentru profesioniști B2B, nu pentru consumatori finali
+   - NU folosi limbaj consumer-focused: evită "dumneavoastră", "când aveți nevoie", "vă oferă", etc.
+   - Fii DIRECT și FACTUAL: descrie ce este produsul și pentru ce este util
+   - Format simplu: "Nume produs - scurtă descriere tehnică. Utilizări practice. Caracteristici cheie."
+
+3. `short_description_ro`: Creează 3-5 bullet points concise (5-15 cuvinte fiecare), separate prin `\\n`, care descriu caracteristici tehnice sau avantaje. TON PROFESIONAL B2B.
+
 4. `category`: Alege categoria cea mai potrivită din lista de mai jos.
 5. `is_licensed_brand`: Determină dacă brandul este unul licențiat major.
 6. `tags_ro`: Generează 5-7 tag-uri SEO relevante, separate prin virgulă.
@@ -254,25 +273,26 @@ CATEGORII DISPONIBILE:
 - Branduri Licențiate
 
 RĂSPUNDE STRICT CU UN DICȚIONAR JSON VALID, FĂRĂ TEXT SUPLIMENTAR. Fiecare element din dicționar trebuie să aibă ca cheie "id"-ul produsului corespunzător din input.
+
+EXEMPLU FORMAT:
 {{
   "id_produs_1": {{
-    "title_ro": "Titlu Produs 1",
-    "description_ro": "**Subtitlu Atractiv**\\nDescrierea primului paragraf aici.",
-    "short_description_ro": "Caracteristica 1.1\\nCaracteristica 1.2",
-    "category": "Jucării & Copii",
-    "is_licensed_brand": true,
-    "tags_ro": "jucarii, copii, cadouri"
-  }},
-  "id_produs_2": {{
-    "title_ro": "Titlu Produs 2",
-    "description_ro": "**Design Modern**\\nDescriere pentru produsul al doilea.",
-    "short_description_ro": "Caracteristica 2.1\\nCaracteristica 2.2",
-    "category": "Casă & Grădină",
+    "title_ro": "Baterii Varta Super Heavy Duty Micro AAA",
+    "description_ro": "Set de 4 baterii Varta Super Heavy Duty Micro AAA - conceput pentru a oferi energie constantă și de lungă durată. Ideale pentru utilizare zilnică în telecomenzi, ceasuri, jucării și alte aparate electronice de mici dimensiuni, aceste baterii asigură funcționarea optimă.",
+    "short_description_ro": "Set de 4 baterii Micro AAA\\nEnergie constantă și de lungă durată\\nIdeale pentru telecomenzi și jucării\\nCompoziție cu descărcare lentă",
+    "category": "Electronice & Birou",
     "is_licensed_brand": false,
-    "tags_ro": "casa, gradina, decor"
+    "tags_ro": "baterii, aaa, varta, telecomenzi, jucarii"
   }}
 }}
 
+IMPORTANT:
+- NU folosi subtitluri bold (ex: **Subtitlu**)
+- NU folosi limbaj consumer (dumneavoastră, vă oferă, când aveți nevoie)
+- Scrie SIMPLU, DIRECT, PROFESIONAL pentru B2B
+- Descrieri scurte (40-60 cuvinte), într-un singur paragraf
+- Folosește DOAR `\\n` pentru a separa bullet points
+- JSON VALID: escape toate ghilimelele (") din text cu backslash (\")
 """
 
 # ============================================
