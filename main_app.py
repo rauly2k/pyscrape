@@ -132,10 +132,11 @@ class CategoryScrapingThread(QThread):
     error = pyqtSignal(str)
     log_message = pyqtSignal(str)
 
-    def __init__(self, category_url: str, max_pages: int):
+    def __init__(self, category_url: str, max_pages: int, products_per_page: int = 0):
         super().__init__()
         self.category_url = category_url
         self.max_pages = max_pages
+        self.products_per_page = products_per_page  # 0 = all products
         self.scraper = None
 
     def run(self):
@@ -152,6 +153,10 @@ class CategoryScrapingThread(QThread):
             self.log_message.emit("✅ Conectat la Chrome!")
             self.log_message.emit(f"📂 Încep scraping: {self.category_url}")
             self.log_message.emit(f"📄 Pagini de extras: {self.max_pages}")
+            if self.products_per_page > 0:
+                self.log_message.emit(f"🔢 Produse per pagină: {self.products_per_page} (testare)")
+            else:
+                self.log_message.emit(f"🔢 Produse per pagină: toate")
             self.log_message.emit("")
 
             def progress_callback(current, total, message):
@@ -161,7 +166,8 @@ class CategoryScrapingThread(QThread):
             products = self.scraper.scrape_category(
                 self.category_url,
                 self.max_pages,
-                progress_callback
+                progress_callback,
+                self.products_per_page
             )
 
             self.log_message.emit("")
@@ -454,7 +460,22 @@ class ZentradaProcessorApp(QMainWindow):
         pages_layout.addWidget(self.pages_to_scrape_input)
         pages_layout.addStretch()
         settings_layout.addLayout(pages_layout)
-        
+
+        # Număr Produse per Pagină (pentru testare)
+        products_limit_layout = QHBoxLayout()
+        products_limit_layout.addWidget(QLabel("Produse per pagină (0 = toate):"))
+        self.products_per_page_input = QSpinBox()
+        self.products_per_page_input.setRange(0, 100)
+        self.products_per_page_input.setValue(0)  # 0 means all products
+        products_limit_layout.addWidget(self.products_per_page_input)
+
+        # Add info label
+        limit_info = QLabel("💡 Pentru testare: setează 10 pentru primele 10 produse")
+        limit_info.setStyleSheet("color: #666; font-size: 9px;")
+        products_limit_layout.addWidget(limit_info)
+        products_limit_layout.addStretch()
+        settings_layout.addLayout(products_limit_layout)
+
         layout.addWidget(scraper_settings_group)
         
         # Butoane Acțiune
@@ -766,6 +787,7 @@ class ZentradaProcessorApp(QMainWindow):
             return
 
         max_pages = self.pages_to_scrape_input.value()
+        products_per_page = self.products_per_page_input.value()
 
         # Verifică că Chrome e deschis cu debugging
         reply = QMessageBox.question(
@@ -787,7 +809,7 @@ class ZentradaProcessorApp(QMainWindow):
         self.scraper_log_text.clear()
 
         # Pornește thread-ul
-        self.category_scraping_thread = CategoryScrapingThread(category_url, max_pages)
+        self.category_scraping_thread = CategoryScrapingThread(category_url, max_pages, products_per_page)
         self.category_scraping_thread.log_message.connect(self.log_scraper)
         self.category_scraping_thread.progress.connect(self.on_scraping_progress)
         self.category_scraping_thread.finished.connect(self.on_scraping_finished)
