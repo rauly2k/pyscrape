@@ -395,7 +395,7 @@ class CategoryScraper:
         Extract ALL product images, filtered by article number to avoid related products
         - Main product-image-output
         - Carousel/gallery images
-        - Only images matching the article number
+        - Fallback: get images from product container if article filtering fails
         """
         images = []
         seen_urls = set()  # Avoid duplicates
@@ -415,6 +415,7 @@ class CategoryScraper:
             if self._is_valid_product_image(src, article_num_clean):
                 # Convert to 600x600
                 src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                src_high_res = src_high_res.replace('w=600&h=600', 'w=600&h=600')  # Already converted
                 if src_high_res not in seen_urls:
                     images.append(src_high_res)
                     seen_urls.add(src_high_res)
@@ -427,6 +428,7 @@ class CategoryScraper:
                 if self._is_valid_product_image(src, article_num_clean):
                     # Convert to 600x600
                     src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                    src_high_res = src_high_res.replace('w=600&h=600', 'w=600&h=600')
                     if src_high_res not in seen_urls:
                         images.append(src_high_res)
                         seen_urls.add(src_high_res)
@@ -439,9 +441,37 @@ class CategoryScraper:
                 if self._is_valid_product_image(src, article_num_clean):
                     # Convert to 600x600
                     src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                    src_high_res = src_high_res.replace('w=600&h=600', 'w=600&h=600')
                     if src_high_res not in seen_urls:
                         images.append(src_high_res)
                         seen_urls.add(src_high_res)
+
+        # FALLBACK: If no images found with article number filtering,
+        # try to get images without article number check (but still exclude logos)
+        if not images:
+            print(f"  ⚠️ No images found with article filter '{article_num_clean}', trying fallback...")
+
+            # Try all sources again without article number filter
+            all_sources = []
+            all_sources.extend(main_imgs)
+            if carousel:
+                all_sources.extend(carousel.find_all('img'))
+            if small_img_holder:
+                all_sources.extend(small_img_holder.find_all('img'))
+
+            for img in all_sources:
+                src = img.get('src', '')
+                # Only check for CDN domain and exclude logos (no article number check)
+                if src and config.IMAGE_CDN_DOMAIN in src:
+                    if 'salesroom.jpg' not in src and 'brands/' not in src and '/Logo' not in src:
+                        src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
+                        src_high_res = src_high_res.replace('w=600&h=600', 'w=600&h=600')
+                        if src_high_res not in seen_urls:
+                            images.append(src_high_res)
+                            seen_urls.add(src_high_res)
+                            # Limit fallback to first 5 images to avoid getting too many
+                            if len(images) >= 5:
+                                break
 
         # Limit to MAX_IMAGES
         return images[:config.MAX_IMAGES]
@@ -450,7 +480,7 @@ class CategoryScraper:
         """
         Check if image URL is a valid product image
         - Must contain CDN domain
-        - Must contain article number in filename
+        - Must contain article number in filename OR path
         - Must not be a vendor logo or brand image
         """
         if not src or config.IMAGE_CDN_DOMAIN not in src:
@@ -460,8 +490,14 @@ class CategoryScraper:
         if 'salesroom.jpg' in src or 'brands/' in src or '/Logo' in src:
             return False
 
-        # Must contain article number in the filename
-        # Examples: 13573.jpg, 13573_1.jpg, 13573_2.jpg
+        # Skip if no article number provided
+        if not article_number or len(article_number) < 3:
+            return False
+
+        # Must contain article number somewhere in the URL
+        # Examples:
+        # - /191624/image.jpg (in path)
+        # - 13573.jpg, 13573_1.jpg (in filename)
         if article_number in src:
             return True
 
