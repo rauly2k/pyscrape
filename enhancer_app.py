@@ -146,7 +146,7 @@ class ProcessingThread(QThread):
     finished = pyqtSignal(list, dict)
     error = pyqtSignal(str)
 
-    def __init__(self, products, processor, use_ai, profit_margin, batch_size_api=20, forced_category=None):
+    def __init__(self, products, processor, use_ai, profit_margin, batch_size_api=20, forced_category=None, parallel_workers=5):
         super().__init__()
         self.products = products
         self.processor = processor
@@ -154,6 +154,7 @@ class ProcessingThread(QThread):
         self.profit_margin = profit_margin
         self.batch_size_api = batch_size_api
         self.forced_category = forced_category  # Categoria forțată pentru toate produsele
+        self.parallel_workers = parallel_workers  # Număr de loturi paralele
 
     def run(self):
         try:
@@ -170,7 +171,8 @@ class ProcessingThread(QThread):
                 self.use_ai,
                 self.profit_margin,
                 report_progress,
-                self.batch_size_api
+                self.batch_size_api,
+                self.parallel_workers
             )
 
             # Aplică categoria forțată dacă este setată
@@ -288,24 +290,43 @@ class ProductEnhancerApp(QMainWindow):
         profit_group.setLayout(profit_layout)
         scroll_layout.addWidget(profit_group)
 
-        # ===== BATCH SIZE =====
+        # ===== BATCH SIZE & PARALLEL WORKERS =====
         batch_group = QGroupBox("⚙️ Setări Procesare")
-        batch_layout = QHBoxLayout()
+        batch_main_layout = QVBoxLayout()
 
+        # Batch size row
+        batch_layout = QHBoxLayout()
         batch_layout.addWidget(QLabel("Batch Size (produse pe lot):"))
         self.batch_size_input = QSpinBox()
         self.batch_size_input.setRange(5, 50)
-        self.batch_size_input.setValue(BATCH_SIZE)
+        self.batch_size_input.setValue(13)  # Recomandat 13
         self.batch_size_input.setSingleStep(1)
         batch_layout.addWidget(self.batch_size_input)
 
-        # Add warning label
-        batch_warning = QLabel("⚠️ Recomandat: 7 produse (limita Gemini 2.5 Flash)")
-        batch_warning.setStyleSheet("color: #ff9800; font-size: 9px;")
-        batch_layout.addWidget(batch_warning)
+        # Add info label
+        batch_info = QLabel("💡 Recomandat: 13 produse per API call")
+        batch_info.setStyleSheet("color: #4CAF50; font-size: 9px;")
+        batch_layout.addWidget(batch_info)
         batch_layout.addStretch()
+        batch_main_layout.addLayout(batch_layout)
 
-        batch_group.setLayout(batch_layout)
+        # Parallel workers row
+        parallel_layout = QHBoxLayout()
+        parallel_layout.addWidget(QLabel("Loturi paralele (workers):"))
+        self.parallel_workers_input = QSpinBox()
+        self.parallel_workers_input.setRange(1, 10)
+        self.parallel_workers_input.setValue(5)  # Default 5 workers
+        self.parallel_workers_input.setSingleStep(1)
+        parallel_layout.addWidget(self.parallel_workers_input)
+
+        # Add info label
+        parallel_info = QLabel("🚀 5 workers = 5x mai rapid | 10 workers = 10x (agresiv)")
+        parallel_info.setStyleSheet("color: #2196F3; font-size: 9px;")
+        parallel_layout.addWidget(parallel_info)
+        parallel_layout.addStretch()
+        batch_main_layout.addLayout(parallel_layout)
+
+        batch_group.setLayout(batch_main_layout)
         scroll_layout.addWidget(batch_group)
 
         scroll_layout.addStretch()
@@ -555,7 +576,8 @@ class ProductEnhancerApp(QMainWindow):
                 self.use_ai_checkbox.isChecked(),
                 profit_margin,
                 self.batch_size_input.value(),
-                forced_category  # Pasează categoria forțată
+                forced_category,  # Pasează categoria forțată
+                self.parallel_workers_input.value()  # Pasează numărul de workers paraleli
             )
 
             self.processing_thread.progress.connect(self.update_progress)
@@ -567,6 +589,8 @@ class ProductEnhancerApp(QMainWindow):
             self.log(f"🚀 Început procesare: {len(products_to_process)} produse")
             self.log(f"📂 Categorie forțată: {forced_category}")
             self.log(f"💰 Marjă profit: {profit_margin}%")
+            self.log(f"⚙️ Batch size: {self.batch_size_input.value()} produse/lot")
+            self.log(f"🚀 Workers paraleli: {self.parallel_workers_input.value()}")
 
         except Exception as e:
             QMessageBox.critical(self, "Eroare", f"Eroare la inițializarea procesării:\n{str(e)}")

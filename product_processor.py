@@ -4,6 +4,8 @@ import time
 import json
 import re
 from typing import Dict, List, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 import google.generativeai as genai
 from config import *
 
@@ -51,6 +53,9 @@ class ProductProcessor:
             'failed_products': 0,
             'ai_calls': 0
         }
+
+        # Lock pentru thread-safe stats updates în procesarea paralelă
+        self._stats_lock = threading.Lock()
     
     def load_json(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -514,16 +519,17 @@ class ProductProcessor:
             self.stats['failed_products'] += 1
             return None
     
-    def process_batch(self, products: List[Dict[str, Any]], use_ai: bool = True, profit_margin: float = 30.0, progress_callback=None, batch_size_api: int = 15) -> List[Dict[str, Any]]:
+    def process_batch(self, products: List[Dict[str, Any]], use_ai: bool = True, profit_margin: float = 30.0, progress_callback=None, batch_size_api: int = 15, parallel_workers: int = 5) -> List[Dict[str, Any]]:
         """
-        Procesează un batch de produse
+        Procesează un batch de produse cu procesare paralelă
 
         Args:
             products: Lista de produse de procesat
             use_ai: Dacă să folosească AI
             profit_margin: Marja de profit (%) pentru toate produsele
             progress_callback: Funcție callback pentru a raporta progresul
-            batch_size_api: Dimensiunea lotului pentru apelurile API către AI
+            batch_size_api: Dimensiunea lotului pentru apelurile API către AI (câte produse per API call)
+            parallel_workers: Număr de loturi paralele (câte API calls în paralel)
 
         Returns:
             Lista de produse procesate
@@ -532,30 +538,49 @@ class ProductProcessor:
         total_to_process = len(products)
         self.stats['total_products'] = total_to_process
 
+        # Thread-safe progress lock
+        progress_lock = threading.Lock()
+
         # Batch AI processing enabled - processes multiple products per AI call
         if use_ai:
-            print(f"📦 Mod BATCH activat: procesez în loturi de {batch_size_api} produse")
+            print(f"📦 Mod BATCH PARALEL activat: {batch_size_api} produse/lot, {parallel_workers} loturi paralele")
             print(f"💰 Marjă profit: {profit_margin}%")
 
-            # Process in batches
+            # Split products into batches
+            batches = []
             for batch_start in range(0, total_to_process, batch_size_api):
                 batch_end = min(batch_start + batch_size_api, total_to_process)
-                product_batch = products[batch_start:batch_end]
+                batches.append({
+                    'products': products[batch_start:batch_end],
+                    'batch_num': len(batches) + 1,
+                    'batch_start': batch_start,
+                    'batch_end': batch_end
+                })
 
-                current_progress = len(processed_products)
-                if progress_callback:
-                    progress_callback(
-                        current_progress,
-                        total_to_process,
-                        f"🤖 Procesez lot {batch_start+1}-{batch_end} din {total_to_process}..."
-                    )
+            print(f"🚀 Total {len(batches)} loturi de procesat în paralel ({parallel_workers} workers)")
+
+            def process_single_batch(batch_info):
+                """Procesează un singur batch (folosit de ThreadPoolExecutor)"""
+                batch_products = []
+                product_batch = batch_info['products']
+                batch_num = batch_info['batch_num']
+                batch_start = batch_info['batch_start']
+                batch_end = batch_info['batch_end']
+
+                with progress_lock:
+                    if progress_callback:
+                        progress_callback(
+                            batch_start,
+                            total_to_process,
+                            f"🤖 Lot {batch_num}: Procesez {batch_start+1}-{batch_end} din {total_to_process}..."
+                        )
 
                 # Try batch AI processing first
                 ai_results = self._enhance_batch_with_ai(product_batch)
 
                 if ai_results:
                     # Batch processing succeeded
-                    print(f"✅ Lot {batch_start+1}-{batch_end}: {len(ai_results)} rezultate de la AI")
+                    print(f"✅ Lot {batch_num} ({batch_start+1}-{batch_end}): {len(ai_results)} rezultate de la AI")
 
                     for product in product_batch:
                         article_number = product.get('article_number', '')
@@ -564,9 +589,7 @@ class ProductProcessor:
                         if ai_result:
                             # Validate ai_result is a dictionary before using it
                             if not isinstance(ai_result, dict):
-                                print(f"⚠️ Produs {article_number}: rezultat AI invalid (tip: {type(ai_result).__name__}). Procesez individual...")
-                                print(f"   Conținut invalid: {str(ai_result)[:200]}")
-                                # Fallback to individual processing
+                                print(f"⚠️ Lot {batch_num}, Produs {article_number}: rezultat AI invalid")
                                 processed = self.process_product(product, use_ai=True, profit_margin=profit_margin)
                             else:
                                 # Use preloaded AI result
@@ -577,28 +600,54 @@ class ProductProcessor:
                                     preloaded_ai_result=ai_result
                                 )
                             if processed:
-                                processed_products.append(processed)
+                                batch_products.append(processed)
                         else:
                             # Article number not found in AI results - fallback to individual
-                            print(f"⚠️ Produsul {article_number} lipsește din răspunsul AI. Procesez individual...")
+                            print(f"⚠️ Lot {batch_num}, Produs {article_number} lipsește. Procesez individual...")
                             processed = self.process_product(product, use_ai=True, profit_margin=profit_margin)
                             if processed:
-                                processed_products.append(processed)
+                                batch_products.append(processed)
                 else:
                     # Batch processing failed - fallback to individual processing
-                    print(f"🔄 Lot {batch_start+1}-{batch_end}: Batch EȘUAT, procesez individual...")
-                    for i, product in enumerate(product_batch, start=1):
-                        article_number = product.get('article_number', 'N/A')
-                        if progress_callback:
-                            progress_callback(
-                                batch_start + i,
-                                total_to_process,
-                                f"📦 Individual {batch_start + i}/{total_to_process}: {article_number}"
-                            )
-
+                    print(f"🔄 Lot {batch_num}: Batch EȘUAT, procesez individual...")
+                    for product in product_batch:
                         processed = self.process_product(product, use_ai=True, profit_margin=profit_margin)
                         if processed:
-                            processed_products.append(processed)
+                            batch_products.append(processed)
+
+                return batch_products
+
+            # Process batches in parallel using ThreadPoolExecutor
+            if parallel_workers > 1:
+                with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+                    # Submit all batches
+                    future_to_batch = {
+                        executor.submit(process_single_batch, batch_info): batch_info
+                        for batch_info in batches
+                    }
+
+                    # Collect results as they complete
+                    for future in as_completed(future_to_batch):
+                        batch_info = future_to_batch[future]
+                        try:
+                            batch_results = future.result()
+                            processed_products.extend(batch_results)
+
+                            with progress_lock:
+                                if progress_callback:
+                                    progress_callback(
+                                        len(processed_products),
+                                        total_to_process,
+                                        f"✅ Completat {len(processed_products)}/{total_to_process} produse"
+                                    )
+                        except Exception as e:
+                            print(f"❌ Eroare procesare lot {batch_info['batch_num']}: {str(e)}")
+            else:
+                # Sequential processing (parallel_workers=1)
+                for batch_info in batches:
+                    batch_results = process_single_batch(batch_info)
+                    processed_products.extend(batch_results)
+
         else:
             # Individual processing (no AI)
             print(f"📦 Mod INDIVIDUAL: procesez unul câte unul")
