@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QTableWidget, QTableWidgetItem,
     QFileDialog, QMessageBox, QProgressBar, QTabWidget, QSpinBox,
-    QDoubleSpinBox, QGroupBox, QScrollArea, QCheckBox, QComboBox
+    QDoubleSpinBox, QGroupBox, QScrollArea, QCheckBox, QComboBox, QDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
@@ -21,6 +21,124 @@ from product_processor import ProductProcessor
 from excel_exporter import ExcelExporter
 
 
+# ===== DIALOG PENTRU SETĂRI PROCESARE =====
+class ProcessingSettingsDialog(QDialog):
+    """Dialog pentru a selecta categoria și marja de profit înainte de procesare"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Setări Procesare Produse")
+        self.setMinimumWidth(500)
+        self.setModal(True)
+
+        self.selected_category = None
+        self.selected_profit_margin = 30
+
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Header
+        header = QLabel("🎯 Setează parametrii pentru procesare")
+        header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
+        layout.addWidget(header)
+
+        # Info text
+        info = QLabel("Toți produsele din acest batch vor folosi aceeași categorie și marjă de profit.")
+        info.setWordWrap(True)
+        info.setStyleSheet("padding: 10px; color: #666;")
+        layout.addWidget(info)
+
+        # Category selection
+        category_group = QGroupBox("📂 Categorie Produse")
+        category_layout = QVBoxLayout()
+
+        category_layout.addWidget(QLabel("Selectează categoria pentru TOATE produsele:"))
+        self.category_combo = QComboBox()
+        self.category_combo.addItems(PRODUCT_CATEGORIES)
+        self.category_combo.setCurrentIndex(0)
+        category_layout.addWidget(self.category_combo)
+
+        category_group.setLayout(category_layout)
+        layout.addWidget(category_group)
+
+        # Profit margin selection
+        profit_group = QGroupBox("💰 Marjă de Profit")
+        profit_layout = QHBoxLayout()
+
+        profit_layout.addWidget(QLabel("Marjă de profit (%):"))
+        self.profit_spinbox = QSpinBox()
+        self.profit_spinbox.setRange(0, 200)
+        self.profit_spinbox.setValue(30)
+        self.profit_spinbox.setSuffix(" %")
+        profit_layout.addWidget(self.profit_spinbox)
+        profit_layout.addStretch()
+
+        profit_group.setLayout(profit_layout)
+        layout.addWidget(profit_group)
+
+        # Preview
+        preview_group = QGroupBox("📊 Preview Calcul Preț")
+        preview_layout = QVBoxLayout()
+
+        self.preview_label = QLabel()
+        self.preview_label.setStyleSheet("padding: 10px; background: #f5f5f5; border-radius: 5px;")
+        self.update_preview()
+        preview_layout.addWidget(self.preview_label)
+
+        preview_group.setLayout(preview_layout)
+        layout.addWidget(preview_group)
+
+        # Connect profit spinbox to preview update
+        self.profit_spinbox.valueChanged.connect(self.update_preview)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        ok_btn = QPushButton("✅ Procesează Produse")
+        ok_btn.setStyleSheet("padding: 10px; background: #4CAF50; color: white; font-weight: bold;")
+        ok_btn.clicked.connect(self.accept)
+
+        cancel_btn = QPushButton("❌ Anulează")
+        cancel_btn.setStyleSheet("padding: 10px;")
+        cancel_btn.clicked.connect(self.reject)
+
+        button_layout.addWidget(cancel_btn)
+        button_layout.addWidget(ok_btn)
+
+        layout.addLayout(button_layout)
+
+    def update_preview(self):
+        """Actualizează preview-ul calculului de preț"""
+        margin = self.profit_spinbox.value()
+
+        # Example calculation
+        example_price_eur = 10.0
+        example_price_lei = example_price_eur * DEFAULT_EUR_RON_RATE
+        sale_price = example_price_lei * (1 + margin / 100)
+        sale_price_vat = sale_price * 1.19
+
+        preview_text = f"""
+        <b>Exemplu calcul pentru 10 EUR:</b><br>
+        <br>
+        Preț achiziție: {example_price_lei:.2f} LEI<br>
+        Marjă profit: {margin}%<br>
+        Preț vânzare: <b>{sale_price:.2f} LEI</b><br>
+        Preț vânzare + TVA (19%): <b>{sale_price_vat:.2f} LEI</b><br>
+        """
+
+        self.preview_label.setText(preview_text)
+
+    def get_settings(self):
+        """Returnează setările selectate"""
+        return {
+            'category': self.category_combo.currentText(),
+            'profit_margin': self.profit_spinbox.value()
+        }
+# ==========================================
+
+
 class ProcessingThread(QThread):
     """Thread pentru procesare produse în background"""
     progress = pyqtSignal(int, str)  # value, message
@@ -28,13 +146,14 @@ class ProcessingThread(QThread):
     finished = pyqtSignal(list, dict)
     error = pyqtSignal(str)
 
-    def __init__(self, products, processor, use_ai, profit_margin, batch_size_api=20):
+    def __init__(self, products, processor, use_ai, profit_margin, batch_size_api=20, forced_category=None):
         super().__init__()
         self.products = products
         self.processor = processor
         self.use_ai = use_ai
         self.profit_margin = profit_margin
         self.batch_size_api = batch_size_api
+        self.forced_category = forced_category  # Categoria forțată pentru toate produsele
 
     def run(self):
         try:
@@ -53,6 +172,11 @@ class ProcessingThread(QThread):
                 report_progress,
                 self.batch_size_api
             )
+
+            # Aplică categoria forțată dacă este setată
+            if self.forced_category:
+                for product in all_processed:
+                    product['category'] = self.forced_category
 
             self.progress.emit(100, "Procesare finalizată!")
             self.finished.emit(all_processed, self.processor.get_stats())
@@ -397,6 +521,17 @@ class ProductEnhancerApp(QMainWindow):
             QMessageBox.warning(self, "Atenție", "Nu ai încărcat niciun fișier JSON!")
             return
 
+        # AFIȘEAZĂ DIALOG PENTRU SETĂRI
+        settings_dialog = ProcessingSettingsDialog(self)
+        if settings_dialog.exec() != QDialog.DialogCode.Accepted:
+            # User a anulat
+            return
+
+        # Obține setările din dialog
+        settings = settings_dialog.get_settings()
+        forced_category = settings['category']
+        profit_margin = settings['profit_margin']
+
         # Pregătește produsele
         products_to_process = self.products_data
         if self.limit_products_checkbox.isChecked():
@@ -406,7 +541,6 @@ class ProductEnhancerApp(QMainWindow):
         # Creează procesorul
         try:
             eur_ron_rate = self.eur_ron_input.value()
-            profit_margin = self.profit_margin_input.value()
 
             self.processor = ProductProcessor(api_key, eur_ron_rate)
 
@@ -420,7 +554,8 @@ class ProductEnhancerApp(QMainWindow):
                 self.processor,
                 self.use_ai_checkbox.isChecked(),
                 profit_margin,
-                self.batch_size_input.value()
+                self.batch_size_input.value(),
+                forced_category  # Pasează categoria forțată
             )
 
             self.processing_thread.progress.connect(self.update_progress)
@@ -430,6 +565,7 @@ class ProductEnhancerApp(QMainWindow):
             self.processing_thread.start()
 
             self.log(f"🚀 Început procesare: {len(products_to_process)} produse")
+            self.log(f"📂 Categorie forțată: {forced_category}")
             self.log(f"💰 Marjă profit: {profit_margin}%")
 
         except Exception as e:
