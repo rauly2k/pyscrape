@@ -132,11 +132,13 @@ class CategoryScrapingThread(QThread):
     error = pyqtSignal(str)
     log_message = pyqtSignal(str)
 
-    def __init__(self, category_url: str, max_pages: int, products_per_page: int = 0):
+    def __init__(self, category_url: str, max_pages: int, products_per_page: int = 0,
+                 parallel_workers: int = 5):
         super().__init__()
         self.category_url = category_url
         self.max_pages = max_pages
         self.products_per_page = products_per_page  # 0 = all products
+        self.parallel_workers = parallel_workers
         self.scraper = None
 
     def run(self):
@@ -153,6 +155,7 @@ class CategoryScrapingThread(QThread):
             self.log_message.emit("✅ Conectat la Chrome!")
             self.log_message.emit(f"📂 Încep scraping: {self.category_url}")
             self.log_message.emit(f"📄 Pagini de extras: {self.max_pages}")
+            self.log_message.emit(f"🚀 Workers paraleli: {self.parallel_workers}")
             if self.products_per_page > 0:
                 self.log_message.emit(f"🔢 Produse per pagină: {self.products_per_page} (testare)")
             else:
@@ -167,7 +170,8 @@ class CategoryScrapingThread(QThread):
                 self.category_url,
                 self.max_pages,
                 progress_callback,
-                self.products_per_page
+                self.products_per_page,
+                self.parallel_workers
             )
 
             self.log_message.emit("")
@@ -475,6 +479,21 @@ class ZentradaProcessorApp(QMainWindow):
         products_limit_layout.addWidget(limit_info)
         products_limit_layout.addStretch()
         settings_layout.addLayout(products_limit_layout)
+
+        # Parallel Workers (pentru scraping rapid)
+        parallel_layout = QHBoxLayout()
+        parallel_layout.addWidget(QLabel("Pagini paralele (workers):"))
+        self.parallel_workers_input = QSpinBox()
+        self.parallel_workers_input.setRange(1, 10)
+        self.parallel_workers_input.setValue(5)  # Default 5 parallel workers
+        parallel_layout.addWidget(self.parallel_workers_input)
+
+        # Add info label
+        parallel_info = QLabel("🚀 Scraping paralel: 5 workers = ~5x mai rapid")
+        parallel_info.setStyleSheet("color: #4CAF50; font-size: 9px;")
+        parallel_layout.addWidget(parallel_info)
+        parallel_layout.addStretch()
+        settings_layout.addLayout(parallel_layout)
 
         layout.addWidget(scraper_settings_group)
         
@@ -788,6 +807,7 @@ class ZentradaProcessorApp(QMainWindow):
 
         max_pages = self.pages_to_scrape_input.value()
         products_per_page = self.products_per_page_input.value()
+        parallel_workers = self.parallel_workers_input.value()
 
         # Verifică că Chrome e deschis cu debugging
         reply = QMessageBox.question(
@@ -809,7 +829,9 @@ class ZentradaProcessorApp(QMainWindow):
         self.scraper_log_text.clear()
 
         # Pornește thread-ul
-        self.category_scraping_thread = CategoryScrapingThread(category_url, max_pages, products_per_page)
+        self.category_scraping_thread = CategoryScrapingThread(
+            category_url, max_pages, products_per_page, parallel_workers
+        )
         self.category_scraping_thread.log_message.connect(self.log_scraper)
         self.category_scraping_thread.progress.connect(self.on_scraping_progress)
         self.category_scraping_thread.finished.connect(self.on_scraping_finished)

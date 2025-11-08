@@ -362,7 +362,8 @@ class ZentradaScraper:
         Extract ALL product images, filtered by article number to avoid related products
         - Main product-image-output
         - Carousel/gallery images
-        - Only images matching the article number
+        - small-img-holder (ALL thumbnails)
+        - Fallback: get images from product container if article filtering fails
 
         Args:
             soup: BeautifulSoup object
@@ -382,49 +383,77 @@ class ZentradaScraper:
         if not product_container:
             product_container = soup  # Fallback to whole page
 
+        # Collect ALL image sources first
+        all_img_sources = []
+
         # 1. Main product image (product-image-output)
         main_imgs = product_container.find_all('img', class_='product-image-output')
-        for img in main_imgs:
-            src = img.get('src', '')
-            if self._is_valid_product_image(src, article_num_clean):
-                # Convert to 600x600
-                src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
-                if src_high_res not in seen_urls:
-                    images.append(src_high_res)
-                    seen_urls.add(src_high_res)
+        all_img_sources.extend(main_imgs)
 
         # 2. Carousel images (owl-carousel contains additional product images)
         carousel = product_container.find('owl-carousel-o')
         if carousel:
-            for img in carousel.find_all('img'):
-                src = img.get('src', '')
-                if self._is_valid_product_image(src, article_num_clean):
-                    # Convert to 600x600
-                    src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
-                    if src_high_res not in seen_urls:
-                        images.append(src_high_res)
-                        seen_urls.add(src_high_res)
+            all_img_sources.extend(carousel.find_all('img'))
 
-        # 3. Look in small-img-holder (another common location for gallery)
-        small_img_holder = product_container.find('div', class_='small-img-holder')
-        if small_img_holder:
-            for img in small_img_holder.find_all('img'):
+        # 3. Small image holder - CRITICAL: Get ALL thumbnails
+        # Try multiple ways to find small-img-holder to catch all variations
+        small_holders = product_container.find_all('div', class_=lambda x: x and 'small-img-holder' in x)
+        for holder in small_holders:
+            holder_imgs = holder.find_all('img')
+            all_img_sources.extend(holder_imgs)
+            print(f"  📸 Found {len(holder_imgs)} images in small-img-holder")
+
+        # Now process all found images with article number filtering
+        filtered_images = []
+        for img in all_img_sources:
+            src = img.get('src', '')
+            if self._is_valid_product_image(src, article_num_clean):
+                # Convert to 600x600
+                src_high_res = self._convert_to_high_res(src)
+                if src_high_res not in seen_urls:
+                    filtered_images.append(src_high_res)
+                    seen_urls.add(src_high_res)
+
+        # If we got images with article filtering, use them
+        if filtered_images:
+            images = filtered_images
+            print(f"  ✓ Extracted {len(images)} images with article filter '{article_num_clean}'")
+        else:
+            # FALLBACK: No images found with article number filtering
+            print(f"  ⚠️ No images with article '{article_num_clean}', using fallback...")
+
+            # Try all sources again without article number filter
+            for img in all_img_sources:
                 src = img.get('src', '')
-                if self._is_valid_product_image(src, article_num_clean):
-                    # Convert to 600x600
-                    src_high_res = src.replace('w=210&h=210', 'w=600&h=600')
-                    if src_high_res not in seen_urls:
-                        images.append(src_high_res)
-                        seen_urls.add(src_high_res)
+                # Only check for CDN domain and exclude logos (no article number check)
+                if src and config.IMAGE_CDN_DOMAIN in src:
+                    if 'salesroom.jpg' not in src and 'brands/' not in src and '/Logo' not in src:
+                        src_high_res = self._convert_to_high_res(src)
+                        if src_high_res not in seen_urls:
+                            images.append(src_high_res)
+                            seen_urls.add(src_high_res)
+                            # Limit fallback to avoid getting too many unrelated images
+                            if len(images) >= config.MAX_IMAGES:
+                                break
+            print(f"  ✓ Fallback extracted {len(images)} images")
 
         # Limit to MAX_IMAGES
         return images[:config.MAX_IMAGES]
+
+    def _convert_to_high_res(self, src: str) -> str:
+        """Convert image URL to 600x600 resolution"""
+        # Handle various resolution parameters
+        src = src.replace('w=210&h=210', 'w=600&h=600')
+        src = src.replace('w=200&h=200', 'w=600&h=600')
+        src = src.replace('w=150&h=150', 'w=600&h=600')
+        # If already at 600x600 or higher, keep as is
+        return src
 
     def _is_valid_product_image(self, src: str, article_number: str) -> bool:
         """
         Check if image URL is a valid product image
         - Must contain CDN domain
-        - Must contain article number in filename
+        - Must contain article number in filename OR path
         - Must not be a vendor logo or brand image
 
         Args:
@@ -441,8 +470,14 @@ class ZentradaScraper:
         if 'salesroom.jpg' in src or 'brands/' in src or '/Logo' in src:
             return False
 
-        # Must contain article number in the filename
-        # Examples: 13573.jpg, 13573_1.jpg, 13573_2.jpg
+        # Skip if no article number provided
+        if not article_number or len(article_number) < 3:
+            return False
+
+        # Must contain article number somewhere in the URL
+        # Examples:
+        # - /191624/image.jpg (in path)
+        # - 13573.jpg, 13573_1.jpg (in filename)
         if article_number in src:
             return True
 
