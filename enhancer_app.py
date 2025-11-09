@@ -238,26 +238,71 @@ class ProductEnhancerApp(QMainWindow):
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
 
-        # ===== API KEY =====
-        api_group = QGroupBox("🔑 Gemini API Key")
-        api_layout = QVBoxLayout()
+        # ===== AI PROVIDER & API KEYS =====
+        ai_group = QGroupBox("🤖 AI Provider & API Keys")
+        ai_main_layout = QVBoxLayout()
 
-        self.api_key_input = QLineEdit()
-        self.api_key_input.setPlaceholderText("Introdu API Key-ul Gemini aici...")
-        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        # Provider selection
+        provider_layout = QHBoxLayout()
+        provider_layout.addWidget(QLabel("AI Provider:"))
+        self.ai_provider_combo = QComboBox()
+        self.ai_provider_combo.addItems(["Gemini", "Perplexity"])
+        self.ai_provider_combo.currentTextChanged.connect(self.on_provider_changed)
+        provider_layout.addWidget(self.ai_provider_combo)
+        provider_layout.addStretch()
+        ai_main_layout.addLayout(provider_layout)
 
-        # Load API key from .env if available
-        api_key_from_env = os.getenv('GEMINI_API_KEY', '')
-        if api_key_from_env:
-            self.api_key_input.setText(api_key_from_env)
-        api_layout.addWidget(self.api_key_input)
+        # Gemini API Key
+        self.gemini_api_layout = QVBoxLayout()
+        gemini_label = QLabel("Gemini API Key:")
+        self.gemini_api_layout.addWidget(gemini_label)
+        self.gemini_api_key_input = QLineEdit()
+        self.gemini_api_key_input.setPlaceholderText("Introdu API Key-ul Gemini aici...")
+        self.gemini_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-        show_api_btn = QPushButton("Arată/Ascunde API Key")
+        # Load Gemini API key from .env if available
+        gemini_key_from_env = os.getenv('GEMINI_API_KEY', '')
+        if gemini_key_from_env:
+            self.gemini_api_key_input.setText(gemini_key_from_env)
+        self.gemini_api_layout.addWidget(self.gemini_api_key_input)
+        ai_main_layout.addLayout(self.gemini_api_layout)
+
+        # Perplexity API Key
+        self.perplexity_api_layout = QVBoxLayout()
+        perplexity_label = QLabel("Perplexity API Key:")
+        self.perplexity_api_layout.addWidget(perplexity_label)
+        self.perplexity_api_key_input = QLineEdit()
+        self.perplexity_api_key_input.setPlaceholderText("Introdu API Key-ul Perplexity aici (pplx-...)...")
+        self.perplexity_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        # Load Perplexity API key from .env if available
+        perplexity_key_from_env = os.getenv('PERPLEXITY_API_KEY', '')
+        if perplexity_key_from_env:
+            self.perplexity_api_key_input.setText(perplexity_key_from_env)
+        self.perplexity_api_layout.addWidget(self.perplexity_api_key_input)
+        ai_main_layout.addLayout(self.perplexity_api_layout)
+
+        # Show/Hide API key button
+        show_api_btn = QPushButton("Arată/Ascunde API Keys")
         show_api_btn.clicked.connect(self.toggle_api_visibility)
-        api_layout.addWidget(show_api_btn)
+        ai_main_layout.addWidget(show_api_btn)
 
-        api_group.setLayout(api_layout)
-        scroll_layout.addWidget(api_group)
+        # Info labels
+        info_layout = QVBoxLayout()
+        gemini_info = QLabel("💡 Gemini: Free tier, good quality, 15 RPM limit")
+        gemini_info.setStyleSheet("color: #666; font-size: 9px;")
+        info_layout.addWidget(gemini_info)
+
+        perplexity_info = QLabel("🚀 Perplexity: Pro account includes $5/month credits, fast, Sonar model")
+        perplexity_info.setStyleSheet("color: #666; font-size: 9px;")
+        info_layout.addWidget(perplexity_info)
+        ai_main_layout.addLayout(info_layout)
+
+        ai_group.setLayout(ai_main_layout)
+        scroll_layout.addWidget(ai_group)
+
+        # Initially show only selected provider
+        self.on_provider_changed(self.ai_provider_combo.currentText())
 
         # ===== CURS EUR/RON =====
         currency_group = QGroupBox("💱 Curs Valutar")
@@ -469,12 +514,28 @@ class ProductEnhancerApp(QMainWindow):
 
         self.tabs.addTab(tab, "📋 Logs")
 
+    def on_provider_changed(self, provider):
+        """Show/hide API key fields based on selected provider"""
+        # Show all fields temporarily to modify them
+        for i in range(self.gemini_api_layout.count()):
+            widget = self.gemini_api_layout.itemAt(i).widget()
+            if widget:
+                widget.setVisible(provider == "Gemini")
+
+        for i in range(self.perplexity_api_layout.count()):
+            widget = self.perplexity_api_layout.itemAt(i).widget()
+            if widget:
+                widget.setVisible(provider == "Perplexity")
+
     def toggle_api_visibility(self):
-        """Toggle vizibilitate API Key"""
-        if self.api_key_input.echoMode() == QLineEdit.EchoMode.Password:
-            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Normal)
+        """Toggle vizibilitate API Keys"""
+        # Toggle Gemini key
+        if self.gemini_api_key_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.gemini_api_key_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.perplexity_api_key_input.setEchoMode(QLineEdit.EchoMode.Normal)
         else:
-            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.gemini_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.perplexity_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
 
     def save_config(self):
         """Salvează configurările"""
@@ -533,9 +594,16 @@ class ProductEnhancerApp(QMainWindow):
     def start_processing(self):
         """Pornește procesarea produselor"""
         # Validări
-        api_key = self.api_key_input.text().strip()
+        ai_provider = self.ai_provider_combo.currentText()
+
+        # Get API key based on selected provider
+        if ai_provider == "Gemini":
+            api_key = self.gemini_api_key_input.text().strip()
+        else:  # Perplexity
+            api_key = self.perplexity_api_key_input.text().strip()
+
         if not api_key and self.use_ai_checkbox.isChecked():
-            QMessageBox.warning(self, "Atenție", "Introdu API Key-ul Gemini în tab-ul Configurări!")
+            QMessageBox.warning(self, "Atenție", f"Introdu API Key-ul {ai_provider} în tab-ul Configurări!")
             return
 
         if not self.products_data:
@@ -563,7 +631,7 @@ class ProductEnhancerApp(QMainWindow):
         try:
             eur_ron_rate = self.eur_ron_input.value()
 
-            self.processor = ProductProcessor(api_key, eur_ron_rate)
+            self.processor = ProductProcessor(api_key, eur_ron_rate, ai_provider=ai_provider)
 
             # Pornește thread-ul de procesare
             self.process_btn.setEnabled(False)
