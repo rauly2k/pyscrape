@@ -3,6 +3,7 @@
 import time
 import json
 import re
+import requests
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -12,40 +13,52 @@ from config import *
 class ProductProcessor:
     """Procesează produsele din JSON către format Excel WooCommerce"""
     
-    def __init__(self, gemini_api_key: str, eur_ron_rate: float = DEFAULT_EUR_RON_RATE):
+    def __init__(self, api_key: str, eur_ron_rate: float = DEFAULT_EUR_RON_RATE, ai_provider: str = "Gemini"):
         """
         Inițializează procesorul
-        
+
         Args:
-            gemini_api_key: API key pentru Gemini AI
+            api_key: API key pentru AI (Gemini sau Perplexity)
             eur_ron_rate: Cursul EUR/RON
+            ai_provider: Provider-ul AI de folosit ("Gemini" sau "Perplexity")
         """
         self.eur_ron_rate = eur_ron_rate
-        self.gemini_api_key = gemini_api_key
-        
-        # Configurare Gemini AI
-        genai.configure(api_key=gemini_api_key)
-        # Am mutat setările de siguranță direct în constructorul modelului
-        # pentru a asigura aplicarea lor la toate apelurile.
-        self.safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_NONE"
-            }
-        ]
-        self.model = genai.GenerativeModel(GEMINI_MODEL, safety_settings=self.safety_settings)
+        self.ai_provider = ai_provider
+        self.api_key = api_key
+
+        # Configurare AI bazat pe provider
+        if ai_provider == "Gemini":
+            # Configurare Gemini AI
+            genai.configure(api_key=api_key)
+            # Am mutat setările de siguranță direct în constructorul modelului
+            # pentru a asigura aplicarea lor la toate apelurile.
+            self.safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_NONE"
+                }
+            ]
+            self.model = genai.GenerativeModel(GEMINI_MODEL, safety_settings=self.safety_settings)
+            print(f"✅ Gemini AI inițializat (model: {GEMINI_MODEL})")
+        elif ai_provider == "Perplexity":
+            # Configurare Perplexity AI
+            self.perplexity_url = "https://api.perplexity.ai/chat/completions"
+            self.perplexity_model = "sonar"  # Model specificat de user
+            print(f"✅ Perplexity AI inițializat (model: {self.perplexity_model})")
+        else:
+            raise ValueError(f"Provider AI necunoscut: {ai_provider}. Folosește 'Gemini' sau 'Perplexity'")
 
         self.stats = {
             'total_products': 0,
@@ -124,6 +137,29 @@ class ProductProcessor:
     def _enhance_batch_with_ai(self, products: List[Dict[str, Any]]) -> Optional[Dict[str, Dict[str, str]]]:
         """
         Procesează un batch de produse cu AI într-un singur apel
+        Router către provider-ul corect
+
+        Args:
+            products: Lista de produse de procesat
+
+        Returns:
+            Dicționar cu cheia = article_number și valoarea = rezultatul AI pentru acel produs
+            Returnează None dacă procesarea eșuează
+        """
+        if not products:
+            return {}
+
+        if self.ai_provider == "Gemini":
+            return self._enhance_batch_with_ai_gemini(products)
+        elif self.ai_provider == "Perplexity":
+            return self._enhance_batch_with_ai_perplexity(products)
+        else:
+            print(f"❌ Provider AI necunoscut: {self.ai_provider}")
+            return None
+
+    def _enhance_batch_with_ai_gemini(self, products: List[Dict[str, Any]]) -> Optional[Dict[str, Dict[str, str]]]:
+        """
+        Procesează un batch de produse cu Gemini AI
 
         Args:
             products: Lista de produse de procesat
@@ -241,7 +277,147 @@ class ProductProcessor:
 
         return None
 
+    def _enhance_batch_with_ai_perplexity(self, products: List[Dict[str, Any]]) -> Optional[Dict[str, Dict[str, str]]]:
+        """
+        Procesează un batch de produse cu Perplexity AI
+
+        Args:
+            products: Lista de produse de procesat
+
+        Returns:
+            Dicționar cu cheia = article_number și valoarea = rezultatul AI pentru acel produs
+            Returnează None dacă procesarea eșuează
+        """
+        if not products:
+            return {}
+
+        # Construim un prompt pentru toate produsele folosind template-ul din config
+        products_data = []
+        for product in products:
+            products_data.append({
+                "id": product.get('article_number', 'N/A'),
+                "brand": product.get('brand', 'N/A'),
+                "product_name": product.get('product_name', 'N/A'),
+                "description": product.get('description', 'N/A'),
+                "country_of_origin": product.get('country_of_origin', 'N/A')
+            })
+
+        # Folosim template-ul din config
+        batch_prompt = AI_PROMPT_BATCH_TEMPLATE.format(
+            product_list_json=json.dumps(products_data, ensure_ascii=False, indent=2)
+        )
+
+        print(f"🤖 Trimit batch de {len(products)} produse către Perplexity AI...")
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.stats['ai_calls'] += 1
+
+                # Prepare Perplexity API request
+                payload = {
+                    "model": self.perplexity_model,
+                    "messages": [
+                        {"role": "user", "content": batch_prompt}
+                    ]
+                }
+
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+
+                # Make API call
+                response = requests.post(self.perplexity_url, json=payload, headers=headers, timeout=60)
+
+                # Check for HTTP errors
+                if response.status_code != 200:
+                    error_msg = f"HTTP {response.status_code}: {response.text}"
+                    print(f"❌ Eroare API Perplexity: {error_msg}")
+                    raise ValueError(error_msg)
+
+                # Parse response
+                response_data = response.json()
+
+                # Extract content from Perplexity response structure
+                if 'choices' not in response_data or len(response_data['choices']) == 0:
+                    raise ValueError(f"Răspuns invalid de la Perplexity: {response_data}")
+
+                response_text = response_data['choices'][0]['message']['content'].strip()
+
+                # Remove markdown code blocks if present
+                if response_text.startswith('```'):
+                    response_text = re.sub(r'```json\s*|\s*```', '', response_text).strip()
+
+                # Parse JSON
+                try:
+                    result = json.loads(response_text)
+                except json.JSONDecodeError as json_err:
+                    print(f"❌ Eroare decodare JSON batch. Motiv: {json_err}")
+                    print(f"--- Răspuns AI (primele 1000 caractere) ---")
+                    print(response_text[:1000])
+                    print(f"--- Ultimele 500 caractere ---")
+                    print(response_text[-500:])
+                    print(f"-------------------------------------------")
+                    raise ValueError(f"AI-ul a returnat JSON invalid. Eroare: {json_err}")
+
+                # Validate structure
+                if not isinstance(result, dict):
+                    raise ValueError(f"AI a returnat {type(result).__name__} în loc de dict. Conținut: {str(result)[:200]}")
+
+                # Validate each product result
+                validated_results = {}
+                for article_num, product_data in result.items():
+                    if not isinstance(product_data, dict):
+                        print(f"⚠️ Produsul '{article_num}' are date invalide (tip: {type(product_data).__name__}). Se va ignora.")
+                        continue
+
+                    # Check required fields
+                    required_fields = ['title_ro', 'description_ro', 'short_description_ro', 'category', 'is_licensed_brand', 'tags_ro']
+                    if all(field in product_data for field in required_fields):
+                        validated_results[article_num] = product_data
+                    else:
+                        missing = [f for f in required_fields if f not in product_data]
+                        print(f"⚠️ Produsul '{article_num}' lipsește câmpurile: {missing}. Se va ignora.")
+
+                if not validated_results:
+                    raise ValueError("Niciun produs valid în răspunsul AI")
+
+                print(f"✅ Batch AI SUCCESS: {len(validated_results)}/{len(products)} produse procesate")
+                return validated_results
+
+            except Exception as e:
+                print(f"❌ Eroare AI batch Perplexity (încercarea {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    print(f"   Aștept {wait_time}s înainte de reîncercare...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"⚠️ Eșec final AI pentru batch după {max_retries} încercări.")
+                    return None
+
+        return None
+
     def enhance_with_ai(self, product: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Folosește AI pentru a îmbunătăți produsul
+        Router către provider-ul corect
+
+        Args:
+            product: Dicționar cu datele produsului
+
+        Returns:
+            Dicționar cu: title_ro, description_ro, category, is_licensed_brand
+        """
+        if self.ai_provider == "Gemini":
+            return self._enhance_with_ai_gemini(product)
+        elif self.ai_provider == "Perplexity":
+            return self._enhance_with_ai_perplexity(product)
+        else:
+            print(f"❌ Provider AI necunoscut: {self.ai_provider}")
+            return self._get_fallback_result(product)
+
+    def _enhance_with_ai_gemini(self, product: Dict[str, Any]) -> Dict[str, str]:
         """
         Folosește Gemini AI pentru a îmbunătăți produsul
 
@@ -341,6 +517,132 @@ class ProductProcessor:
                     break # Ieși din bucla de reîncercări
 
         # Fallback dacă toate încercările AI eșuează
+        return self._get_fallback_result(product)
+
+    def _enhance_with_ai_perplexity(self, product: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Folosește Perplexity AI pentru a îmbunătăți produsul
+
+        Args:
+            product: Dicționar cu datele produsului
+
+        Returns:
+            Dicționar cu: title_ro, description_ro, category, is_licensed_brand
+        """
+        prompt = AI_PROMPT_TEMPLATE.format(
+            brand=product.get('brand', 'N/A'),
+            product_name=product.get('product_name', 'N/A'),
+            description=product.get('description', 'N/A'),
+            country_of_origin=product.get('country_of_origin', 'N/A')
+        )
+
+        print(f"🤖 Trimit 1 produs către Perplexity AI: {product.get('article_number', 'N/A')}")
+
+        # Mecanism de reîncercare
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.stats['ai_calls'] += 1
+
+                # Prepare Perplexity API request
+                payload = {
+                    "model": self.perplexity_model,
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ]
+                }
+
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+
+                # Make API call
+                response = requests.post(self.perplexity_url, json=payload, headers=headers, timeout=60)
+
+                # Check for HTTP errors
+                if response.status_code != 200:
+                    error_msg = f"HTTP {response.status_code}: {response.text}"
+                    print(f"❌ Eroare API Perplexity: {error_msg}")
+                    raise ValueError(error_msg)
+
+                # Parse response
+                response_data = response.json()
+
+                # Extract content from Perplexity response structure
+                if 'choices' not in response_data or len(response_data['choices']) == 0:
+                    raise ValueError(f"Răspuns invalid de la Perplexity: {response_data}")
+
+                response_text = response_data['choices'][0]['message']['content'].strip()
+
+                # Debug: Log what we received
+                print(f"\n{'='*60}")
+                print(f"📥 RAW AI RESPONSE pentru {product.get('article_number', 'N/A')}:")
+                print(f"{'='*60}")
+                print(response_text)
+                print(f"{'='*60}\n")
+
+                if response_text.startswith('```'):
+                    print("🔧 Removing markdown code blocks...")
+                    response_text = re.sub(r'```json\s*|\s*```', '', response_text).strip()
+
+                print(f"📋 Cleaned response (first 300 chars): {response_text[:300]}")
+
+                try:
+                    result = json.loads(response_text)
+                    print(f"✅ JSON parsed successfully. Type: {type(result).__name__}")
+                    print(f"   Keys in result: {list(result.keys()) if isinstance(result, dict) else 'NOT A DICT'}")
+                except json.JSONDecodeError as json_err:
+                    print(f"❌ Eroare decodare JSON de la AI. Motiv: {json_err}")
+                    print(f"--- JSON Primit (Invalid) ---\n{response_text[:500]}\n--------------------------")
+                    raise ValueError(f"AI-ul a returnat JSON invalid. Eroare: {json_err}")
+
+                # CRITICAL: Validate that result is a dictionary, not a string or other type
+                if not isinstance(result, dict):
+                    print(f"❌ AI a returnat {type(result).__name__} în loc de dicționar!")
+                    print(f"--- Conținut primit ---\n{str(result)[:500]}\n--------------------------")
+                    raise ValueError(f"AI a returnat tip invalid: {type(result).__name__}")
+
+                # Validate required fields exist
+                required_fields = ['title_ro', 'description_ro', 'short_description_ro', 'category', 'is_licensed_brand', 'tags_ro']
+                missing_fields = [f for f in required_fields if f not in result]
+                if missing_fields:
+                    print(f"❌ Lipsesc câmpurile: {missing_fields}")
+                    print(f"--- JSON primit ---\n{json.dumps(result, ensure_ascii=False, indent=2)[:500]}\n--------------------------")
+                    raise ValueError(f"Lipsesc câmpurile obligatorii: {missing_fields}")
+
+                # Validare și returnare
+                return {
+                    'title_ro': result.get('title_ro', product.get('product_name', 'Produs')),
+                    'description_ro': result.get('description_ro', 'Descriere indisponibilă.'),
+                    'short_description_ro': result.get('short_description_ro', 'Produs de calitate'),
+                    'category': result.get('category', 'Casă & Grădină'),
+                    'is_licensed_brand': result.get('is_licensed_brand', False),
+                    'tags_ro': result.get('tags_ro', '')
+                }
+
+            except Exception as e:
+                print(f"❌ Eroare AI Perplexity (încercarea {attempt + 1}/{max_retries}) pentru {product.get('article_number', 'N/A')}: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Așteaptă 2 secunde înainte de a reîncerca
+                else:
+                    # A eșuat și ultima încercare, folosim fallback
+                    print(f"⚠️ Eșec final AI pentru {product.get('article_number', 'N/A')}. Se folosesc date de fallback.")
+                    break
+
+        # Fallback dacă toate încercările AI eșuează
+        return self._get_fallback_result(product)
+
+    def _get_fallback_result(self, product: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Returnează date de fallback când AI eșuează
+
+        Args:
+            product: Dicționar cu datele produsului
+
+        Returns:
+            Dicționar cu date de fallback
+        """
         category = "Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină"
         brand = product.get('brand', 'N/A')
         tags = f"{brand}, B2B" if brand != 'N/A' else "B2B"
@@ -352,7 +654,7 @@ class ProductProcessor:
             'short_description_ro': f"Produs de calitate\nBrand: {brand}\nOrigine: {product.get('country_of_origin', 'N/A')}",
             'category': category,
             'is_licensed_brand': self.is_licensed_brand(brand),
-            'tags_ro': tags # Ensure this key is present
+            'tags_ro': tags
         }
     
     def _calculate_prices(self, price_eur_piece: float, pieces_per_box: int,
@@ -439,15 +741,7 @@ class ProductProcessor:
                 ai_result = self.enhance_with_ai(product)
             else:
                 # No AI - use defaults
-                category = "Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină"
-                ai_result = {
-                    'title_ro': product.get('product_name', 'Produs'),
-                    'description_ro': product.get('description', 'Descriere indisponibilă.'),
-                    'short_description_ro': f"Produs de calitate\nBrand: {product.get('brand', 'N/A')}\nOrigine: {product.get('country_of_origin', 'N/A')}",
-                    'category': category,
-                    'is_licensed_brand': self.is_licensed_brand(product.get('brand', '')),
-                    'tags_ro': f"{product.get('brand', 'N/A')}, B2B"
-                }
+                ai_result = self._get_fallback_result(product)
 
             # CRITICAL: Validate ai_result is a dictionary before using it
             if not isinstance(ai_result, dict):
@@ -455,16 +749,7 @@ class ProductProcessor:
                 print(f"   Conținut: {str(ai_result)[:200]}")
                 print(f"   Se folosește fallback...")
                 # Force fallback
-                category = "Branduri Licențiate" if self.is_licensed_brand(product.get('brand', '')) else "Casă & Grădină"
-                brand = product.get('brand', 'N/A')
-                ai_result = {
-                    'title_ro': product.get('product_name', 'Produs'),
-                    'description_ro': f"Produs {brand} de calitate. " + product.get('description', ''),
-                    'short_description_ro': f"Produs de calitate\nBrand: {brand}\nOrigine: {product.get('country_of_origin', 'N/A')}",
-                    'category': category,
-                    'is_licensed_brand': self.is_licensed_brand(brand),
-                    'tags_ro': f"{brand}, B2B" if brand != 'N/A' else "B2B"
-                }
+                ai_result = self._get_fallback_result(product)
 
             # 4. Adaugă informații de ambalaj și comandă minimă la descriere
             description_with_packaging = ai_result.get('description_ro', product.get('description', ''))
